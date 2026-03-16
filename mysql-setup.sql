@@ -1,35 +1,60 @@
 -- MySQL Database Setup for Expense Tracker
--- Run this in your Aiven MySQL or local MySQL
 
--- Create database (if not exists)
+-- Create database (run manually if needed)
 -- CREATE DATABASE IF NOT EXISTS expense_tracker;
 -- USE expense_tracker;
 
--- Create users table
+-- Users table
 CREATE TABLE IF NOT EXISTS users (
   id INT AUTO_INCREMENT PRIMARY KEY,
-  email VARCHAR(255) UNIQUE NOT NULL,
+  username VARCHAR(255) UNIQUE NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
   name VARCHAR(255),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Create expenses table
-CREATE TABLE IF NOT EXISTS expenses (
+-- Categories table (user-specific)
+CREATE TABLE IF NOT EXISTS categories (
   id INT AUTO_INCREMENT PRIMARY KEY,
   user_id INT NOT NULL,
-  description VARCHAR(255) NOT NULL,
-  amount DECIMAL(10, 2) NOT NULL,
-  category VARCHAR(50) NOT NULL,
-  date DATETIME DEFAULT CURRENT_TIMESTAMP,
+  name VARCHAR(100) NOT NULL,
+  type ENUM('expense', 'income') NOT NULL DEFAULT 'expense',
+  color VARCHAR(20) DEFAULT '#6366f1',
+  icon VARCHAR(50) DEFAULT 'default',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
--- Create indexes for faster queries
-CREATE INDEX IF NOT EXISTS idx_expenses_user_id ON expenses(user_id);
-CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(date DESC);
+-- Expenses table
+CREATE TABLE IF NOT EXISTS expenses (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  category_id INT NOT NULL,
+  description VARCHAR(255) NOT NULL,
+  amount DECIMAL(10, 2) NOT NULL,
+  date DATE NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
+);
 
--- Sample data (optional - for testing)
--- INSERT INTO users (email, password_hash, name) VALUES ('test@example.com', 'test123', 'Test User');
--- INSERT INTO expenses (user_id, description, amount, category) VALUES (1, 'Coffee', 5.50, 'food');
+-- Income table
+CREATE TABLE IF NOT EXISTS incomes (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  category_id INT NOT NULL,
+  source VARCHAR(255) NOT NULL,
+  amount DECIMAL(10, 2) NOT NULL,
+  date DATE NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
+);
+
+-- Indexes
+CREATE INDEX idx_categories_user_type_name ON categories(user_id, type, name);
+CREATE INDEX idx_categories_user_name ON categories(user_id, name);
+CREATE INDEX idx_expenses_user_date_created ON expenses(user_id, date, created_at);
+CREATE INDEX idx_expenses_user_category ON expenses(user_id, category_id);
+CREATE INDEX idx_incomes_user_date_created ON incomes(user_id, date, created_at);
+CREATE INDEX idx_incomes_user_category ON incomes(user_id, category_id);

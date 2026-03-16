@@ -3,12 +3,10 @@ import mysql from 'mysql2/promise'
 let pool = null
 
 function getDbUrl() {
-  // Check for MYSQL_URL
   if (process.env.MYSQL_URL) {
     return process.env.MYSQL_URL
   }
   
-  // Laravel-style DB_* variables
   if (process.env.DB_CONNECTION === 'mysql' && process.env.DB_HOST) {
     const user = process.env.DB_USERNAME || 'root'
     const pass = process.env.DB_PASSWORD || ''
@@ -21,7 +19,6 @@ function getDbUrl() {
   return (
     process.env.DATABASE_URL ||
     process.env.JAWSDB_URL ||
-    process.env.CLEARDB_DATABASE_URL ||
     null
   )
 }
@@ -49,7 +46,6 @@ async function getPool() {
 }
 
 export default async function handler(req, res) {
-  // Set CORS headers
   res.setHeader('Access-Control-Allow-Credentials', true)
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
@@ -59,7 +55,7 @@ export default async function handler(req, res) {
     return res.status(200).end()
   }
 
-  const { action, userId, email, password, name, expenseId, description, amount, category } = req.body
+  const { action, userId, username, password, name, categoryId, categoryName, categoryType, categoryColor, source, amount, description, date, startDate, endDate, search } = req.body
 
   const p = await getPool()
 
@@ -68,63 +64,286 @@ export default async function handler(req, res) {
   }
 
   try {
+    // ============ AUTH ============
     if (action === 'register') {
-      // Check if user exists
-      const [rows] = await p.query('SELECT id FROM users WHERE email = ?', [email])
+      const [rows] = await p.query('SELECT id FROM users WHERE username = ?', [username])
       if (rows.length > 0) {
-        return res.status(400).json({ error: 'Email already registered' })
+        return res.status(400).json({ error: 'Username already taken' })
       }
 
-      // Create new user
       const [result] = await p.query(
-        'INSERT INTO users (email, password_hash, name) VALUES (?, ?, ?)',
-        [email, password, name]
+        'INSERT INTO users (username, password_hash, name) VALUES (?, ?, ?)',
+        [username, password, name || username]
+      )
+
+      // Create default categories for new user
+      const userId = result.insertId
+      await p.query(
+        `INSERT INTO categories (user_id, name, type, color) VALUES 
+        (?, 'Food', 'expense', '#ef4444'),
+        (?, 'Transport', 'expense', '#f97316'),
+        (?, 'Shopping', 'expense', '#eab308'),
+        (?, 'Bills', 'expense', '#22c55e'),
+        (?, 'Entertainment', 'expense', '#06b6d4'),
+        (?, 'Health', 'expense', '#8b5cf6'),
+        (?, 'Other', 'expense', '#6b7280'),
+        (?, 'Salary', 'income', '#22c55e'),
+        (?, 'Side Income', 'income', '#06b6d4'),
+        (?, 'Investment', 'income', '#8b5cf6'),
+        (?, 'Other', 'income', '#6b7280')`,
+        [userId, userId, userId, userId, userId, userId, userId, userId, userId, userId, userId]
       )
 
       return res.status(200).json({
-        user: { id: result.insertId, email, name }
+        user: { id: result.insertId, username, name: name || username }
       })
     }
 
     if (action === 'login') {
       const [rows] = await p.query(
-        'SELECT id, email, name, password_hash FROM users WHERE email = ?',
-        [email]
+        'SELECT id, username, name, password_hash FROM users WHERE username = ?',
+        [username]
       )
 
       if (rows.length === 0) {
-        return res.status(401).json({ error: 'Invalid email or password' })
+        return res.status(401).json({ error: 'Username does not exist' })
       }
 
       const user = rows[0]
       if (user.password_hash !== password) {
-        return res.status(401).json({ error: 'Invalid email or password' })
+        return res.status(401).json({ error: 'Incorrect password' })
       }
 
       return res.status(200).json({
-        user: { id: user.id, email: user.email, name: user.name }
+        user: { id: user.id, username: user.username, name: user.name }
       })
     }
 
-    if (action === 'getExpenses') {
-      const [rows] = await p.query(
-        'SELECT * FROM expenses WHERE user_id = ? ORDER BY date DESC',
-        [userId]
+    // ============ CATEGORIES ============
+    if (action === 'getCategories') {
+      const limit = parseInt(req.body.limit) || 20
+      const offset = parseInt(req.body.offset) || 0
+      const search = req.body.search || ''
+      
+      let query = 'SELECT * FROM categories WHERE user_id = ?'
+      const params = [userId]
+      
+      if (search) {
+        query += ' AND name LIKE ?'
+        params.push(`%${search}%`)
+      }
+      
+      query += ' ORDER BY type, name LIMIT ? OFFSET ?'
+      params.push(limit, offset)
+
+      const [rows] = await p.query(query, params)
+      
+      // Get total count for pagination
+      let countQuery = 'SELECT COUNT(*) as total FROM categories WHERE user_id = ?'
+      const countParams = [userId]
+      if (search) {
+        countQuery += ' AND name LIKE ?'
+        countParams.push(`%${search}%`)
+      }
+      const [countResult] = await p.query(countQuery, countParams)
+      
+      return res.status(200).json({ 
+        categories: rows,
+        total: countResult[0].total,
+        hasMore: offset + rows.length < countResult[0].total
+      })
+    }
+
+    if (action === 'createCategory') {
+      const [result] = await p.query(
+        'INSERT INTO categories (user_id, name, type, color) VALUES (?, ?, ?, ?)',
+        [userId, categoryName, categoryType || 'expense', categoryColor || '#6366f1']
       )
-      return res.status(200).json({ expenses: rows })
+      return res.status(200).json({ 
+        category: { id: result.insertId, name: categoryName, type: categoryType, color: categoryColor }
+      })
+    }
+
+    if (action === 'deleteCategory') {
+      await p.query('DELETE FROM categories WHERE id = ? AND user_id = ?', [categoryId, userId])
+      return res.status(200).json({ success: true })
+    }
+
+    // ============ EXPENSES ============
+    if (action === 'getExpenses') {
+      const limit = parseInt(req.body.limit) || 20
+      const offset = parseInt(req.body.offset) || 0
+      const selectedCategoryId = Number(req.body.categoryId) || 0
+      let query = 'SELECT e.*, c.name as category_name, c.color as category_color FROM expenses e LEFT JOIN categories c ON e.category_id = c.id WHERE e.user_id = ?'
+      const params = [userId]
+
+      if (startDate && endDate) {
+        query += ' AND e.date BETWEEN ? AND ?'
+        params.push(startDate, endDate)
+      }
+
+      if (search) {
+        query += ' AND e.description LIKE ?'
+        params.push(`%${search}%`)
+      }
+
+      if (selectedCategoryId > 0) {
+        query += ' AND e.category_id = ?'
+        params.push(selectedCategoryId)
+      }
+
+      query += ' ORDER BY e.date DESC, e.created_at DESC LIMIT ? OFFSET ?'
+      params.push(limit, offset)
+
+      const [rows] = await p.query(query, params)
+
+      let countQuery = 'SELECT COUNT(*) as total FROM expenses e WHERE e.user_id = ?'
+      const countParams = [userId]
+
+      if (startDate && endDate) {
+        countQuery += ' AND e.date BETWEEN ? AND ?'
+        countParams.push(startDate, endDate)
+      }
+
+      if (search) {
+        countQuery += ' AND e.description LIKE ?'
+        countParams.push(`%${search}%`)
+      }
+
+      if (selectedCategoryId > 0) {
+        countQuery += ' AND e.category_id = ?'
+        countParams.push(selectedCategoryId)
+      }
+
+      const [countResult] = await p.query(countQuery, countParams)
+
+      return res.status(200).json({
+        expenses: rows,
+        total: countResult[0].total,
+        hasMore: offset + rows.length < countResult[0].total
+      })
     }
 
     if (action === 'addExpense') {
       await p.query(
-        'INSERT INTO expenses (user_id, description, amount, category, date) VALUES (?, ?, ?, ?, NOW())',
-        [userId, description, amount, category]
+        'INSERT INTO expenses (user_id, category_id, description, amount, date) VALUES (?, ?, ?, ?, ?)',
+        [userId, categoryId || null, description, amount, date || new Date().toISOString().split('T')[0]]
       )
       return res.status(200).json({ success: true })
     }
 
     if (action === 'deleteExpense') {
-      await p.query('DELETE FROM expenses WHERE id = ?', [expenseId])
+      await p.query('DELETE FROM expenses WHERE id = ? AND user_id = ?', [req.body.expenseId, userId])
       return res.status(200).json({ success: true })
+    }
+
+    // ============ INCOMES ============
+    if (action === 'getIncomes') {
+      const limit = parseInt(req.body.limit) || 20
+      const offset = parseInt(req.body.offset) || 0
+      const selectedCategoryId = Number(req.body.categoryId) || 0
+      let query = 'SELECT i.*, c.name as category_name, c.color as category_color FROM incomes i LEFT JOIN categories c ON i.category_id = c.id WHERE i.user_id = ?'
+      const params = [userId]
+
+      if (startDate && endDate) {
+        query += ' AND i.date BETWEEN ? AND ?'
+        params.push(startDate, endDate)
+      }
+
+      if (search) {
+        query += ' AND i.source LIKE ?'
+        params.push(`%${search}%`)
+      }
+
+      if (selectedCategoryId > 0) {
+        query += ' AND i.category_id = ?'
+        params.push(selectedCategoryId)
+      }
+
+      query += ' ORDER BY i.date DESC, i.created_at DESC LIMIT ? OFFSET ?'
+      params.push(limit, offset)
+
+      const [rows] = await p.query(query, params)
+
+      let countQuery = 'SELECT COUNT(*) as total FROM incomes i WHERE i.user_id = ?'
+      const countParams = [userId]
+
+      if (startDate && endDate) {
+        countQuery += ' AND i.date BETWEEN ? AND ?'
+        countParams.push(startDate, endDate)
+      }
+
+      if (search) {
+        countQuery += ' AND i.source LIKE ?'
+        countParams.push(`%${search}%`)
+      }
+
+      if (selectedCategoryId > 0) {
+        countQuery += ' AND i.category_id = ?'
+        countParams.push(selectedCategoryId)
+      }
+
+      const [countResult] = await p.query(countQuery, countParams)
+
+      return res.status(200).json({
+        incomes: rows,
+        total: countResult[0].total,
+        hasMore: offset + rows.length < countResult[0].total
+      })
+    }
+
+    if (action === 'addIncome') {
+      await p.query(
+        'INSERT INTO incomes (user_id, category_id, source, amount, date) VALUES (?, ?, ?, ?, ?)',
+        [userId, categoryId || null, source, amount, date || new Date().toISOString().split('T')[0]]
+      )
+      return res.status(200).json({ success: true })
+    }
+
+    if (action === 'deleteIncome') {
+      await p.query('DELETE FROM incomes WHERE id = ? AND user_id = ?', [req.body.incomeId, userId])
+      return res.status(200).json({ success: true })
+    }
+
+    // ============ DASHBOARD ============
+    if (action === 'getDashboard') {
+      const now = new Date()
+      const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]
+      const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0]
+
+      // Total expenses this month
+      const [expenseRows] = await p.query(
+        'SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE user_id = ? AND date BETWEEN ? AND ?',
+        [userId, firstDayOfMonth, lastDayOfMonth]
+      )
+
+      // Total income this month
+      const [incomeRows] = await p.query(
+        'SELECT COALESCE(SUM(amount), 0) as total FROM incomes WHERE user_id = ? AND date BETWEEN ? AND ?',
+        [userId, firstDayOfMonth, lastDayOfMonth]
+      )
+
+      // Recent transactions
+      const [recentExpenses] = await p.query(
+        'SELECT e.*, c.name as category_name, c.color as category_color, "expense" as type FROM expenses e LEFT JOIN categories c ON e.category_id = c.id WHERE e.user_id = ? ORDER BY e.date DESC LIMIT 8',
+        [userId]
+      )
+
+      const [recentIncomes] = await p.query(
+        'SELECT i.*, c.name as category_name, c.color as category_color, "income" as type FROM incomes i LEFT JOIN categories c ON i.category_id = c.id WHERE i.user_id = ? ORDER BY i.date DESC LIMIT 8',
+        [userId]
+      )
+
+      const recentTransactions = [...recentExpenses, ...recentIncomes]
+        .sort((a, b) => new Date(b.date) - new Date(a.date))
+        .slice(0, 8)
+
+      return res.status(200).json({
+        totalExpenses: parseFloat(expenseRows[0].total || 0),
+        totalIncome: parseFloat(incomeRows[0].total || 0),
+        balance: parseFloat(incomeRows[0].total || 0) - parseFloat(expenseRows[0].total || 0),
+        recentTransactions
+      })
     }
 
     return res.status(400).json({ error: 'Unknown action' })

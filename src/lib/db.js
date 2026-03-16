@@ -1,64 +1,75 @@
 // Database API client
-// Uses API routes for server-side database access
-
 const API_URL = import.meta.env.PROD ? '' : 'http://localhost:3000'
 
 async function fetchAPI(endpoint, data) {
-  try {
-    const response = await fetch(`${API_URL}/api/${endpoint}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(data),
-    })
+  const response = await fetch(`${API_URL}/api/${endpoint}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(data),
+  })
 
-    const result = await response.json()
-    
-    if (!response.ok) {
-      throw new Error(result.error || 'API error')
-    }
-    
-    return result
-  } catch (error) {
-    console.error('API error:', error)
-    throw error
+  const result = await response.json()
+  
+  // Return the result even if it's an error - let the caller handle it
+  // This allows proper error messages from the server
+  if (!response.ok) {
+    throw new Error(result.error || 'API error')
   }
+  
+  return result
 }
 
-// Auth API
-export async function register(email, password, name) {
-  return fetchAPI('auth', { action: 'register', email, password, name })
+// Auth
+export async function register(username, password, name) {
+  return fetchAPI('auth', { action: 'register', username, password, name })
 }
 
-export async function login(email, password) {
-  return fetchAPI('auth', { action: 'login', email, password })
+export async function login(username, password) {
+  return fetchAPI('auth', { action: 'login', username, password })
 }
 
-// Expenses API
-export async function getExpenses(userId) {
-  return fetchAPI('auth', { action: 'getExpenses', userId })
+// Categories
+export async function getCategories(userId, search = '', limit = 20, offset = 0) {
+  return fetchAPI('auth', { action: 'getCategories', userId, search, limit, offset })
 }
 
-export async function addExpense(userId, description, amount, category) {
-  return fetchAPI('auth', { action: 'addExpense', userId, description, amount, category })
+export async function createCategory(userId, name, type, color) {
+  return fetchAPI('auth', { action: 'createCategory', userId, categoryName: name, categoryType: type, categoryColor: color })
 }
 
-export async function deleteExpense(expenseId) {
-  return fetchAPI('auth', { action: 'deleteExpense', expenseId })
+export async function deleteCategory(userId, categoryId) {
+  return fetchAPI('auth', { action: 'deleteCategory', userId, categoryId })
 }
 
-// Check if API is available
-export async function isDemoMode() {
-  try {
-    // Try to call the API - if it fails, we're in demo mode
-    await fetch(`${API_URL}/api/auth`, { 
-      method: 'POST',
-      body: JSON.stringify({ action: 'ping' })
-    })
-    return false
-  } catch (e) {
-    // API not available - use demo mode
-    return true
-  }
+// Expenses
+export async function getExpenses(userId, startDate, endDate, search, limit = 20, offset = 0, categoryId = '') {
+  return fetchAPI('auth', { action: 'getExpenses', userId, startDate, endDate, search, limit, offset, categoryId })
+}
+
+export async function addExpense(userId, categoryId, description, amount, date) {
+  return fetchAPI('auth', { action: 'addExpense', userId, categoryId, description, amount, date })
+}
+
+export async function deleteExpense(userId, expenseId) {
+  return fetchAPI('auth', { action: 'deleteExpense', userId, expenseId })
+}
+
+// Incomes
+export async function getIncomes(userId, startDate, endDate, search, limit = 20, offset = 0, categoryId = '') {
+  return fetchAPI('auth', { action: 'getIncomes', userId, startDate, endDate, search, limit, offset, categoryId })
+}
+
+export async function addIncome(userId, categoryId, source, amount, date) {
+  return fetchAPI('auth', { action: 'addIncome', userId, categoryId, source, amount, date })
+}
+
+export async function deleteIncome(userId, incomeId) {
+  return fetchAPI('auth', { action: 'deleteIncome', userId, incomeId })
+}
+
+// Dashboard
+export async function getDashboard(userId) {
+  return fetchAPI('auth', { action: 'getDashboard', userId })
 }
