@@ -1,15 +1,15 @@
 <script setup>
-import { sql } from '@vercel/postgres'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { addExpense, deleteExpense, getExpenses, isDemoMode } from '../lib/db'
 
 const router = useRouter()
 
 const expenses = ref([])
 const isLoading = ref(true)
 const showAddForm = ref(false)
+const demoMode = ref(false)
 
-// Form data
 const newExpense = ref({
   description: '',
   amount: '',
@@ -29,7 +29,6 @@ const categories = [
 const userName = ref('')
 const userEmail = ref('')
 
-// Computed
 const totalExpenses = computed(() => {
   return expenses.value.reduce((sum, exp) => sum + Number(exp.amount), 0)
 })
@@ -38,7 +37,6 @@ const sortedExpenses = computed(() => {
   return [...expenses.value].sort((a, b) => new Date(b.date) - new Date(a.date))
 })
 
-// Methods
 async function loadExpenses() {
   const userId = localStorage.getItem('userId')
   if (!userId) {
@@ -47,60 +45,88 @@ async function loadExpenses() {
   }
   
   isLoading.value = true
+  demoMode.value = await isDemoMode()
+  
   try {
-    const { rows } = await sql`
-      SELECT * FROM expenses 
-      WHERE user_id = ${userId}
-      ORDER BY date DESC
-    `
-    expenses.value = rows
+    if (demoMode.value) {
+      const stored = localStorage.getItem('expenses_' + userId)
+      if (stored) {
+        expenses.value = JSON.parse(stored)
+      } else {
+        expenses.value = [
+          { id: 1, description: 'Coffee', amount: 5.50, category: 'food', date: new Date().toISOString() },
+          { id: 2, description: 'Bus fare', amount: 2.00, category: 'transport', date: new Date().toISOString() },
+          { id: 3, description: 'Lunch', amount: 12.00, category: 'food', date: new Date().toISOString() }
+        ]
+      }
+    } else {
+      const result = await getExpenses(userId)
+      expenses.value = result.expenses || []
+    }
   } catch (e) {
-    console.log('Database not set up yet - using demo data')
+    console.log('Error loading expenses:', e.message)
+    demoMode.value = true
     expenses.value = [
       { id: 1, description: 'Coffee', amount: 5.50, category: 'food', date: new Date().toISOString() },
-      { id: 2, description: 'Bus fare', amount: 2.00, category: 'transport', date: new Date().toISOString() },
-      { id: 3, description: 'Lunch', amount: 12.00, category: 'food', date: new Date().toISOString() }
+      { id: 2, description: 'Bus fare', amount: 2.00, category: 'transport', date: new Date().toISOString() }
     ]
   } finally {
     isLoading.value = false
   }
 }
 
-async function addExpense() {
+async function saveExpense() {
   if (!newExpense.value.description || !newExpense.value.amount) return
   
   const userId = localStorage.getItem('userId')
   
   try {
-    await sql`
-      INSERT INTO expenses (user_id, description, amount, category, date)
-      VALUES (${userId}, ${newExpense.value.description}, ${newExpense.value.amount}, ${newExpense.value.category}, NOW())
-    `
+    if (demoMode.value) {
+      const expense = {
+        id: Date.now(),
+        description: newExpense.value.description,
+        amount: Number(newExpense.value.amount),
+        category: newExpense.value.category,
+        date: new Date().toISOString()
+      }
+      expenses.value.unshift(expense)
+      localStorage.setItem('expenses_' + userId, JSON.stringify(expenses.value))
+    } else {
+      await addExpense(userId, newExpense.value.description, newExpense.value.amount, newExpense.value.category)
+      await loadExpenses()
+    }
   } catch (e) {
-    console.log('Using local demo mode')
+    console.log('Error saving expense:', e.message)
+    const expense = {
+      id: Date.now(),
+      description: newExpense.value.description,
+      amount: Number(newExpense.value.amount),
+      category: newExpense.value.category,
+      date: new Date().toISOString()
+    }
+    expenses.value.unshift(expense)
   }
   
-  // Add to local list
-  expenses.value.unshift({
-    id: Date.now(),
-    description: newExpense.value.description,
-    amount: Number(newExpense.value.amount),
-    category: newExpense.value.category,
-    date: new Date().toISOString()
-  })
-  
-  // Reset form
   newExpense.value = { description: '', amount: '', category: 'food' }
   showAddForm.value = false
 }
 
-async function deleteExpense(id) {
+async function removeExpense(id) {
+  const userId = localStorage.getItem('userId')
+  
   try {
-    await sql`DELETE FROM expenses WHERE id = ${id}`
+    if (!demoMode.value) {
+      await deleteExpense(id)
+    }
   } catch (e) {
-    console.log('Using local demo mode')
+    console.log('Error deleting:', e.message)
   }
+  
   expenses.value = expenses.value.filter(exp => exp.id !== id)
+  
+  if (demoMode.value) {
+    localStorage.setItem('expenses_' + userId, JSON.stringify(expenses.value))
+  }
 }
 
 function logout() {
@@ -130,7 +156,6 @@ onMounted(() => {
 
 <template>
   <div class="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 pb-20">
-    <!-- Header -->
     <header class="bg-slate-800/50 backdrop-blur border-b border-slate-700 sticky top-0 z-10">
       <div class="max-w-md mx-auto px-4 py-4">
         <div class="flex items-center justify-between">
@@ -153,7 +178,10 @@ onMounted(() => {
     </header>
 
     <main class="max-w-md mx-auto px-4 py-6">
-      <!-- Total Card -->
+      <div v-if="demoMode" class="bg-amber-500/20 border border-amber-500/50 rounded-lg p-3 mb-4 text-amber-200 text-sm">
+        ⚠️ Demo mode - Data stored in browser. Connect a database for persistence.
+      </div>
+
       <Card class="bg-gradient-to-r from-emerald-600 to-teal-600 border-0 mb-6">
         <CardContent class="pt-6">
           <p class="text-emerald-100 text-sm mb-1">Total Expenses</p>
@@ -161,7 +189,6 @@ onMounted(() => {
         </CardContent>
       </Card>
 
-      <!-- Add Expense Button -->
       <Button 
         @click="showAddForm = !showAddForm"
         class="w-full mb-6 bg-emerald-600 hover:bg-emerald-700 text-white"
@@ -170,10 +197,9 @@ onMounted(() => {
         <span v-else>Cancel</span>
       </Button>
 
-      <!-- Add Expense Form -->
       <Card v-if="showAddForm" class="bg-slate-800/50 border-slate-700 mb-6">
         <CardContent class="pt-6">
-          <form @submit.prevent="addExpense" class="space-y-4">
+          <form @submit.prevent="saveExpense" class="space-y-4">
             <div class="space-y-2">
               <Label for="desc" class="text-slate-300">Description</Label>
               <Input 
@@ -216,7 +242,6 @@ onMounted(() => {
         </CardContent>
       </Card>
 
-      <!-- Expenses List -->
       <div class="space-y-3">
         <h2 class="text-lg font-semibold text-white mb-4">Recent</h2>
         
@@ -245,7 +270,7 @@ onMounted(() => {
             <div class="flex items-center gap-3">
               <span class="text-white font-semibold">${{ Number(expense.amount).toFixed(2) }}</span>
               <button 
-                @click="deleteExpense(expense.id)"
+                @click="removeExpense(expense.id)"
                 class="text-slate-500 hover:text-red-400 transition-colors p-1"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">

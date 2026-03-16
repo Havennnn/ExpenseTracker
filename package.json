@@ -9,10 +9,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@vercel/postgres": "^0.5.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-vue-next": "^0.577.0",
+    "mysql2": "^3.20.0",
     "pinia": "^2.1.7",
     "tailwind-merge": "^3.5.0",
     "vue": "^3.4.0",
