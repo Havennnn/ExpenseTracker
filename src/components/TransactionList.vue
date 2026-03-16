@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import { formatCurrency } from '../lib/utils'
 
 const props = defineProps({
   items: {
@@ -20,7 +21,7 @@ const props = defineProps({
   },
   amountPrefix: {
     type: String,
-    default: '-$'
+    default: '-'
   },
   amountColor: {
     type: String,
@@ -77,6 +78,10 @@ function getItemName(item) {
 function getCategoryName(item) {
   return item.category_name || item.name || 'Other'
 }
+
+function formatSignedAmount(amount) {
+  return `${props.amountPrefix}${formatCurrency(amount)}`
+}
 </script>
 
 <template>
@@ -108,7 +113,7 @@ function getCategoryName(item) {
                 class="font-medium ml-2 whitespace-nowrap" 
                 :class="type === 'income' ? 'text-emerald-400' : amountColor"
               >
-                {{ amountPrefix }}{{ Number(item.amount).toFixed(2) }}
+                {{ formatSignedAmount(item.amount) }}
               </p>
             </div>
             <div class="flex items-center justify-between mt-1">

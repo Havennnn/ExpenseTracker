@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import ReportSkeleton from '../components/ReportSkeleton.vue'
 import { getExpenses, getIncomes } from '../lib/db'
+import { formatCurrency } from '../lib/utils'
 
 const userId = localStorage.getItem('userId')
 const isLoading = ref(true)
@@ -143,19 +144,19 @@ watch(reportMonth, loadReport)
           <div>
             <p class="text-zinc-500 text-sm">{{ monthLabel }}</p>
             <p class="text-3xl font-semibold" :class="netBalance >= 0 ? 'text-emerald-400' : 'text-red-400'">
-              ${{ netBalance.toFixed(2) }}
+              {{ formatCurrency(netBalance) }}
             </p>
             <p class="text-zinc-500 text-xs">Net balance</p>
           </div>
           <div class="grid grid-cols-2 gap-3">
             <div class="bg-zinc-950 border border-zinc-800 rounded-xl p-4">
               <p class="text-zinc-500 text-xs">Income</p>
-              <p class="text-xl font-semibold text-emerald-400">${{ totalIncome.toFixed(2) }}</p>
+              <p class="text-xl font-semibold text-emerald-400">{{ formatCurrency(totalIncome) }}</p>
               <p class="text-zinc-600 text-xs mt-1">{{ incomes.length }} entries</p>
             </div>
             <div class="bg-zinc-950 border border-zinc-800 rounded-xl p-4">
               <p class="text-zinc-500 text-xs">Expenses</p>
-              <p class="text-xl font-semibold text-red-400">${{ totalExpenses.toFixed(2) }}</p>
+              <p class="text-xl font-semibold text-red-400">{{ formatCurrency(totalExpenses) }}</p>
               <p class="text-zinc-600 text-xs mt-1">{{ expenses.length }} entries</p>
             </div>
           </div>
@@ -179,7 +180,7 @@ watch(reportMonth, loadReport)
               >
                 <div class="flex items-center justify-between">
                   <p class="text-zinc-100 font-medium">{{ item.name }}</p>
-                  <p class="text-red-400 font-medium">${{ item.total.toFixed(2) }}</p>
+                  <p class="text-red-400 font-medium">{{ formatCurrency(item.total) }}</p>
                 </div>
                 <p class="text-zinc-500 text-xs mt-2">{{ item.count }} transactions</p>
               </div>
@@ -199,7 +200,7 @@ watch(reportMonth, loadReport)
               >
                 <div class="flex items-center justify-between">
                   <p class="text-zinc-100 font-medium">{{ item.name }}</p>
-                  <p class="text-emerald-400 font-medium">${{ item.total.toFixed(2) }}</p>
+                  <p class="text-emerald-400 font-medium">{{ formatCurrency(item.total) }}</p>
                 </div>
                 <p class="text-zinc-500 text-xs mt-2">{{ item.count }} transactions</p>
               </div>

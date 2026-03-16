@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import BottomNav from '../components/BottomNav.vue'
 import HomeSkeleton from '../components/HomeSkeleton.vue'
 import { getDashboard } from '../lib/db'
+import { formatCurrency } from '../lib/utils'
 
 const router = useRouter()
 
@@ -99,7 +100,7 @@ onMounted(loadDashboard)
             class="text-4xl font-semibold"
             :class="isPositive ? 'text-emerald-400' : 'text-red-400'"
           >
-            ${{ (dashboard?.balance || 0).toFixed(2) }}
+            {{ formatCurrency(dashboard?.balance || 0) }}
           </p>
           <p class="text-zinc-500 text-xs mt-2">
             {{ isPositive ? 'You saved this month!' : 'You overspent this month' }}
@@ -109,11 +110,11 @@ onMounted(loadDashboard)
         <div class="grid grid-cols-2 gap-3">
           <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
             <p class="text-zinc-500 text-xs">Income</p>
-            <p class="text-xl font-semibold text-emerald-400">${{ (dashboard?.totalIncome || 0).toFixed(2) }}</p>
+            <p class="text-xl font-semibold text-emerald-400">{{ formatCurrency(dashboard?.totalIncome || 0) }}</p>
           </div>
           <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
             <p class="text-zinc-500 text-xs">Expenses</p>
-            <p class="text-xl font-semibold text-red-400">${{ (dashboard?.totalExpenses || 0).toFixed(2) }}</p>
+            <p class="text-xl font-semibold text-red-400">{{ formatCurrency(dashboard?.totalExpenses || 0) }}</p>
           </div>
         </div>
 
@@ -132,7 +133,7 @@ onMounted(loadDashboard)
                     class="font-medium ml-2 whitespace-nowrap"
                     :class="txn.type === 'income' ? 'text-emerald-400' : 'text-zinc-100'"
                   >
-                    {{ txn.type === 'income' ? '+' : '-' }}${{ Number(txn.amount).toFixed(2) }}
+                    {{ txn.type === 'income' ? '+' : '-' }}{{ formatCurrency(txn.amount) }}
                   </span>
                 </div>
                 <div class="flex items-center justify-between mt-1">

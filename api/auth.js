@@ -2,6 +2,7 @@ import mysql from 'mysql2/promise'
 
 let pool = null
 let schemaReady = false
+const REQUIRED_TABLES = ['users', 'categories', 'expenses', 'incomes']
 
 function getDbUrl() {
   if (process.env.MYSQL_URL) {
@@ -139,23 +140,26 @@ async function setupDatabase() {
 async function ensureSchema(p) {
   if (schemaReady) return true
 
-  try {
-    await p.query('SELECT 1 FROM users LIMIT 1')
-    schemaReady = true
-    return true
-  } catch (error) {
-    if (error.code !== 'ER_NO_SUCH_TABLE') {
-      throw error
-    }
+  const [rows] = await p.query(
+    `SELECT table_name
+     FROM information_schema.tables
+     WHERE table_schema = DATABASE()
+       AND table_name IN (?)`,
+    [REQUIRED_TABLES]
+  )
 
+  const existingTables = new Set(rows.map(row => row.table_name))
+  const isSchemaComplete = REQUIRED_TABLES.every(tableName => existingTables.has(tableName))
+
+  if (!isSchemaComplete) {
     const setupSucceeded = await setupDatabase()
     if (!setupSucceeded) {
       return false
     }
-
-    schemaReady = true
-    return true
   }
+
+  schemaReady = true
+  return true
 }
 
 export default async function handler(req, res) {
