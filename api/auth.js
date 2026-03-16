@@ -1,6 +1,7 @@
 import mysql from 'mysql2/promise'
 
 let pool = null
+let schemaReady = false
 
 function getDbUrl() {
   if (process.env.MYSQL_URL) {
@@ -135,6 +136,28 @@ async function setupDatabase() {
   }
 }
 
+async function ensureSchema(p) {
+  if (schemaReady) return true
+
+  try {
+    await p.query('SELECT 1 FROM users LIMIT 1')
+    schemaReady = true
+    return true
+  } catch (error) {
+    if (error.code !== 'ER_NO_SUCH_TABLE') {
+      throw error
+    }
+
+    const setupSucceeded = await setupDatabase()
+    if (!setupSucceeded) {
+      return false
+    }
+
+    schemaReady = true
+    return true
+  }
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', true)
   res.setHeader('Access-Control-Allow-Origin', '*')
@@ -163,6 +186,11 @@ export default async function handler(req, res) {
   }
 
   try {
+    const schemaAvailable = await ensureSchema(p)
+    if (!schemaAvailable) {
+      return res.status(500).json({ error: 'Database setup failed' })
+    }
+
     // ============ AUTH ============
     if (action === 'register') {
       const [rows] = await p.query('SELECT id FROM users WHERE username = ?', [username])
