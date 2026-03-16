@@ -18,6 +18,7 @@ const expenses = ref([])
 const categories = ref([])
 const isLoading = ref(true)
 const isLoadingMore = ref(false)
+const isSaving = ref(false)
 const showAddForm = ref(false)
 const showDeleteModal = ref(false)
 const deleteItemId = ref(null)
@@ -110,6 +111,9 @@ function handleSearch(query, startDate = '', endDate = '', categoryId = '') {
 }
 
 async function saveExpense(formData) {
+  if (isSaving.value) return
+  isSaving.value = true
+
   try {
     await addExpense(userId, formData.categoryId, formData.description, formData.amount, formData.date)
     
@@ -127,6 +131,10 @@ async function saveExpense(formData) {
     emit('refresh')
   } catch (e) {
     console.error('Error:', e)
+    alert(e.message || 'Failed to add expense')
+    return
+  } finally {
+    isSaving.value = false
   }
   
   showAddForm.value = false
@@ -218,6 +226,7 @@ onUnmounted(() => {
       <!-- Add Form -->
       <TransactionForm 
         :show="showAddForm"
+        :is-submitting="isSaving"
         type="expense"
         :categories="categories"
         button-color="bg-zinc-100"

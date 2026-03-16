@@ -18,6 +18,7 @@ const incomes = ref([])
 const categories = ref([])
 const isLoading = ref(true)
 const isLoadingMore = ref(false)
+const isSaving = ref(false)
 const showAddForm = ref(false)
 const showDeleteModal = ref(false)
 const deleteItemId = ref(null)
@@ -110,6 +111,9 @@ function handleSearch(query, startDate = '', endDate = '', categoryId = '') {
 }
 
 async function saveIncome(formData) {
+  if (isSaving.value) return
+  isSaving.value = true
+
   try {
     const result = await addIncome(userId, formData.categoryId, formData.source, formData.amount, formData.date)
     if (result.income) {
@@ -120,6 +124,9 @@ async function saveIncome(formData) {
   } catch (e) {
     console.error('Error:', e)
     alert(e.message || 'Failed to add income')
+    return
+  } finally {
+    isSaving.value = false
   }
   
   showAddForm.value = false
@@ -211,6 +218,7 @@ onUnmounted(() => {
       <!-- Add Form -->
       <TransactionForm 
         :show="showAddForm"
+        :is-submitting="isSaving"
         type="income"
         :categories="categories"
         button-color="bg-emerald-600"

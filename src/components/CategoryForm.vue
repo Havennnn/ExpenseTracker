@@ -3,6 +3,10 @@ import { onUnmounted, ref, watch } from 'vue'
 
 const props = defineProps({
   show: Boolean,
+  isSubmitting: {
+    type: Boolean,
+    default: false
+  },
   item: {
     type: Object,
     default: null
@@ -46,6 +50,7 @@ onUnmounted(() => {
 })
 
 function handleSave() {
+  if (props.isSubmitting) return
   if (!form.value.name) return
   emit('save', { ...form.value })
 }
@@ -53,11 +58,11 @@ function handleSave() {
 
 <template>
   <Teleport to="body">
-    <div v-if="show" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="emit('cancel')">
+    <div v-if="show" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="!isSubmitting && emit('cancel')">
       <div class="w-full max-w-sm bg-zinc-900 border border-zinc-800 rounded-2xl p-4 space-y-3 shadow-2xl">
         <div class="flex items-center justify-between">
           <h3 class="text-lg font-medium text-zinc-100">{{ item ? 'Edit Category' : 'New Category' }}</h3>
-          <button @click="emit('cancel')" class="p-2 text-zinc-500 hover:text-zinc-300">
+          <button @click="emit('cancel')" :disabled="isSubmitting" class="p-2 text-zinc-500 hover:text-zinc-300 disabled:opacity-50 disabled:cursor-not-allowed">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -67,6 +72,7 @@ function handleSave() {
         <input 
           v-model="form.name" 
           placeholder="Category name"
+          :disabled="isSubmitting"
           class="w-full h-10 px-3 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-100 placeholder:text-zinc-500 text-sm"
         />
         
@@ -75,6 +81,7 @@ function handleSave() {
           <div class="flex gap-2">
             <button 
               @click="form.type = 'expense'"
+              :disabled="isSubmitting"
               class="flex-1 h-10 rounded-lg text-sm font-medium transition-colors"
               :class="form.type === 'expense' ? 'bg-red-500/20 text-red-400 border border-red-500' : 'bg-zinc-800 text-zinc-400 border border-zinc-700'"
             >
@@ -82,6 +89,7 @@ function handleSave() {
             </button>
             <button 
               @click="form.type = 'income'"
+              :disabled="isSubmitting"
               class="flex-1 h-10 rounded-lg text-sm font-medium transition-colors"
               :class="form.type === 'income' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500' : 'bg-zinc-800 text-zinc-400 border border-zinc-700'"
             >
@@ -97,6 +105,7 @@ function handleSave() {
               v-for="color in colors" 
               :key="color"
               @click="form.color = color"
+              :disabled="isSubmitting"
               class="w-8 h-8 rounded-lg transition-transform"
               :style="{ backgroundColor: color }"
               :class="form.color === color ? 'ring-2 ring-white scale-110' : ''"
@@ -107,15 +116,17 @@ function handleSave() {
         <div class="flex gap-2 pt-1">
           <button 
             @click="emit('cancel')"
-            class="flex-1 h-10 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-sm"
+            :disabled="isSubmitting"
+            class="flex-1 h-10 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Cancel
           </button>
           <button 
             @click="handleSave"
-            class="flex-1 h-10 bg-zinc-100 hover:bg-zinc-200 text-zinc-900 font-medium rounded-lg text-sm"
+            :disabled="isSubmitting"
+            class="flex-1 h-10 bg-zinc-100 hover:bg-zinc-200 text-zinc-900 font-medium rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {{ item ? 'Update' : 'Save' }}
+            {{ isSubmitting ? (item ? 'Updating...' : 'Saving...') : (item ? 'Update' : 'Save') }}
           </button>
         </div>
       </div>

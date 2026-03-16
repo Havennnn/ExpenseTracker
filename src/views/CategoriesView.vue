@@ -16,6 +16,7 @@ const emit = defineEmits(['refresh'])
 const categories = ref([])
 const isLoading = ref(true)
 const isLoadingMore = ref(false)
+const isSaving = ref(false)
 const showAddForm = ref(false)
 const showDeleteModal = ref(false)
 const searchQuery = ref('')
@@ -87,6 +88,9 @@ function handleTypeChange(type) {
 }
 
 async function saveCategory(formData) {
+  if (isSaving.value) return
+  isSaving.value = true
+
   try {
     await createCategory(userId, formData.name, formData.type, formData.color)
     
@@ -101,6 +105,10 @@ async function saveCategory(formData) {
     emit('refresh')
   } catch (e) {
     console.error('Error:', e)
+    alert(e.message || 'Failed to save category')
+    return
+  } finally {
+    isSaving.value = false
   }
   
   showAddForm.value = false
@@ -223,6 +231,7 @@ onUnmounted(() => {
       <!-- Add/Edit Form -->
       <CategoryForm 
         :show="showAddForm"
+        :is-submitting="isSaving"
         @save="saveCategory"
         @cancel="showAddForm = false"
       />
@@ -236,7 +245,7 @@ onUnmounted(() => {
       </div>
 
       <!-- Categories List -->
-      <div v-else class="space-y-1 px-4">
+      <div v-else class="space-y-3 px-4">
         <div 
           v-for="cat in filteredCategories" 
           :key="cat.id"
