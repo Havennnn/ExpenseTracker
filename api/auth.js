@@ -3,10 +3,25 @@ import mysql from 'mysql2/promise'
 let pool = null
 
 function getDbUrl() {
+  // Check for MYSQL_URL
+  if (process.env.MYSQL_URL) {
+    return process.env.MYSQL_URL
+  }
+  
+  // Laravel-style DB_* variables
+  if (process.env.DB_CONNECTION === 'mysql' && process.env.DB_HOST) {
+    const user = process.env.DB_USERNAME || 'root'
+    const pass = process.env.DB_PASSWORD || ''
+    const host = process.env.DB_HOST || '127.0.0.1'
+    const port = process.env.DB_PORT || 3306
+    const db = process.env.DB_DATABASE || 'expense'
+    return `mysql://${user}:${pass}@${host}:${port}/${db}`
+  }
+  
   return (
-    process.env.MYSQL_URL ||
     process.env.DATABASE_URL ||
     process.env.JAWSDB_URL ||
+    process.env.CLEARDB_DATABASE_URL ||
     null
   )
 }

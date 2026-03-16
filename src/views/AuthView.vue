@@ -8,9 +8,8 @@ const isLoading = ref(false)
 const error = ref('')
 const mode = ref('login')
 
-const email = ref('')
+const username = ref('')
 const password = ref('')
-const name = ref('')
 
 const isAuthenticated = computed(() => !!localStorage.getItem('userId'))
 
@@ -19,64 +18,55 @@ async function handleSubmit() {
   isLoading.value = true
   
   try {
-    // Check if API is available
     const demo = await isDemoMode()
     
     if (demo) {
-      // Demo mode - simulate auth
       if (mode.value === 'register') {
-        if (localStorage.getItem('user_' + email.value)) {
-          error.value = 'Email already registered'
+        if (localStorage.getItem('user_' + username.value)) {
+          error.value = 'Username already taken'
           isLoading.value = false
           return
         }
         const userId = 'demo_' + Date.now()
         localStorage.setItem('userId', userId)
-        localStorage.setItem('userEmail', email.value)
-        localStorage.setItem('userName', name.value || 'Demo User')
+        localStorage.setItem('username', username.value)
       } else {
         const userId = localStorage.getItem('userId') || 'demo_' + Date.now()
         localStorage.setItem('userId', userId)
-        localStorage.setItem('userEmail', email.value)
-        localStorage.setItem('userName', 'Demo User')
+        localStorage.setItem('username', username.value)
       }
       router.push('/')
       isLoading.value = false
       return
     }
     
-    // Real API
     if (mode.value === 'register') {
-      const result = await register(email.value, password.value, name.value)
+      const result = await register(username.value, password.value, username.value)
       if (result.error) {
         error.value = result.error
         isLoading.value = false
         return
       }
       localStorage.setItem('userId', result.user.id)
-      localStorage.setItem('userEmail', result.user.email)
-      localStorage.setItem('userName', result.user.name)
+      localStorage.setItem('username', result.user.name || username.value)
       router.push('/')
     } else {
-      const result = await login(email.value, password.value)
+      const result = await login(username.value, password.value)
       if (result.error) {
         error.value = result.error
         isLoading.value = false
         return
       }
       localStorage.setItem('userId', result.user.id)
-      localStorage.setItem('userEmail', result.user.email)
-      localStorage.setItem('userName', result.user.name)
+      localStorage.setItem('username', result.user.name || username.value)
       router.push('/')
     }
   } catch (e) {
     console.error('Auth error:', e)
-    error.value = 'Authentication failed. Using demo mode.'
-    // Fallback to demo mode
+    error.value = 'Authentication failed'
     const userId = 'demo_' + Date.now()
     localStorage.setItem('userId', userId)
-    localStorage.setItem('userEmail', email.value)
-    localStorage.setItem('userName', name.value || 'Demo User')
+    localStorage.setItem('username', username.value)
     router.push('/')
   } finally {
     isLoading.value = false
@@ -90,93 +80,75 @@ function toggleMode() {
 </script>
 
 <template>
-  <div class="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-    <div class="w-full max-w-md">
+  <div class="min-h-screen flex items-center justify-center p-4 bg-zinc-950">
+    <div class="w-full max-w-sm">
       <div class="text-center mb-8">
-        <h1 class="text-3xl font-bold text-white mb-2">💰 Expense Tracker</h1>
-        <p class="text-slate-400">{{ mode === 'login' ? 'Welcome back!' : 'Create your account' }}</p>
+        <div class="w-12 h-12 bg-zinc-800 rounded-xl mx-auto mb-4 flex items-center justify-center">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 text-zinc-100" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </div>
+        <h1 class="text-2xl font-semibold text-zinc-100">Expense Tracker</h1>
+        <p class="text-zinc-500 mt-1 text-sm">{{ mode === 'login' ? 'Welcome back' : 'Create your account' }}</p>
       </div>
       
-      <Card class="bg-slate-800/50 border-slate-700 backdrop-blur">
-        <CardHeader>
-          <CardTitle class="text-white text-xl">
-            {{ mode === 'login' ? 'Sign In' : 'Sign Up' }}
-          </CardTitle>
-          <CardDescription class="text-slate-400">
-            {{ mode === 'login' 
-              ? 'Enter your credentials to access your expenses' 
-              : 'Start tracking your expenses today' 
-            }}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form @submit.prevent="handleSubmit" class="space-y-4">
-            <div v-if="mode === 'register'" class="space-y-2">
-              <Label for="name" class="text-slate-300">Name</Label>
-              <Input 
-                id="name" 
-                v-model="name" 
-                type="text" 
-                placeholder="John Doe"
-                required
-                class="bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-500 focus:ring-emerald-500"
-              />
-            </div>
-            
-            <div class="space-y-2">
-              <Label for="email" class="text-slate-300">Email</Label>
-              <Input 
-                id="email" 
-                v-model="email" 
-                type="email" 
-                placeholder="you@example.com"
-                required
-                class="bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-500 focus:ring-emerald-500"
-              />
-            </div>
-            
-            <div class="space-y-2">
-              <Label for="password" class="text-slate-300">Password</Label>
-              <Input 
-                id="password" 
-                v-model="password" 
-                type="password" 
-                placeholder="••••••••"
-                required
-                minlength="4"
-                class="bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-500 focus:ring-emerald-500"
-              />
-            </div>
-            
-            <div v-if="error" class="text-red-400 text-sm text-center py-2">
-              {{ error }}
-            </div>
-            
-            <Button 
-              type="submit" 
-              class="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
-              :disabled="isLoading"
-            >
-              <span v-if="isLoading">Loading...</span>
-              <span v-else>{{ mode === 'login' ? 'Sign In' : 'Create Account' }}</span>
-            </Button>
-          </form>
-          
-          <div class="mt-6 text-center">
-            <button 
-              @click="toggleMode"
-              class="text-sm text-emerald-400 hover:text-emerald-300 transition-colors"
-            >
-              {{ mode === 'login' 
-                ? "Don't have an account? Sign up" 
-                : 'Already have an account? Sign in' 
-              }}
-            </button>
+      <div class="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+        <h2 class="text-lg font-medium text-zinc-100 mb-5">
+          {{ mode === 'login' ? 'Sign in' : 'Create account' }}
+        </h2>
+        
+        <form @submit.prevent="handleSubmit" class="space-y-4">
+          <div class="space-y-2">
+            <label for="username" class="text-sm font-medium text-zinc-300">Username</label>
+            <input 
+              id="username" 
+              v-model="username" 
+              type="text" 
+              placeholder="Enter username"
+              required
+              class="w-full h-11 px-3 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-600 focus:border-transparent transition-all"
+            />
           </div>
-        </CardContent>
-      </Card>
+          
+          <div class="space-y-2">
+            <label for="password" class="text-sm font-medium text-zinc-300">Password</label>
+            <input 
+              id="password" 
+              v-model="password" 
+              type="password" 
+              placeholder="Enter password"
+              required
+              minlength="4"
+              class="w-full h-11 px-3 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-600 focus:border-transparent transition-all"
+            />
+          </div>
+          
+          <div v-if="error" class="text-red-400 text-sm text-center py-2">
+            {{ error }}
+          </div>
+          
+          <button 
+            type="submit" 
+            class="w-full h-11 bg-zinc-100 hover:bg-zinc-200 text-zinc-900 font-medium rounded-lg transition-colors disabled:opacity-50"
+            :disabled="isLoading"
+          >
+            <span v-if="isLoading">Loading...</span>
+            <span v-else>{{ mode === 'login' ? 'Sign in' : 'Create account' }}</span>
+          </button>
+        </form>
+        
+        <div class="mt-5 text-center">
+          <button 
+            @click="toggleMode"
+            class="text-sm text-zinc-400 hover:text-zinc-200 transition-colors"
+          >
+            {{ mode === 'login' ? "Don't have an account?" : 'Already have an account?' }}
+            <span class="ml-1">{{ mode === 'login' ? 'Sign up' : 'Sign in' }}</span>
+          </button>
+        </div>
+      </div>
       
-      <p class="text-center text-slate-500 text-xs mt-6">
+      <p class="text-center text-zinc-600 text-xs mt-6">
         Free tier • MySQL Database
       </p>
     </div>
