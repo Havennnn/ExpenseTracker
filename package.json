@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "npx vercel dev",
+    "dev": "vite",
+    "dev:api": "npx vercel dev",
     "build": "vite build",
     "preview": "vite preview"
   },
