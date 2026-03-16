@@ -1,5 +1,4 @@
 <script setup>
-import { kv } from '@vercel/kv'
 import { sql } from '@vercel/postgres'
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -44,16 +43,6 @@ async function handleSubmit() {
       localStorage.setItem('userEmail', user.email)
       localStorage.setItem('userName', user.name)
       
-      // Create session in KV (if available)
-      try {
-        const sessionId = crypto.randomUUID()
-        await kv.set(`session:${sessionId}`, user.id, { ex: 60 * 60 * 24 * 7 }) // 7 days
-        localStorage.setItem('sessionId', sessionId)
-      } catch (e) {
-        // KV might not be configured, continue without session
-        console.log('KV not configured, using localStorage only')
-      }
-      
       router.push('/')
     } else {
       // Login
@@ -82,14 +71,7 @@ async function handleSubmit() {
       localStorage.setItem('userEmail', user.email)
       localStorage.setItem('userName', user.name)
       
-      // Create session
-      try {
-        const sessionId = crypto.randomUUID()
-        await kv.set(`session:${sessionId}`, user.id, { ex: 60 * 60 * 24 * 7 })
-        localStorage.setItem('sessionId', sessionId)
-      } catch (e) {
-        console.log('KV not configured')
-      }
+      // Session managed via localStorage only
       
       router.push('/')
     }
@@ -204,7 +186,7 @@ function toggleMode() {
       
       <!-- Footer -->
       <p class="text-center text-slate-500 text-xs mt-6">
-        Free tier • Vercel Postgres
+        LatsMarbls • Simple Expense Tracker
       </p>
     </div>
   </div>
