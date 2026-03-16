@@ -111,22 +111,15 @@ function handleSearch(query, startDate = '', endDate = '', categoryId = '') {
 
 async function saveIncome(formData) {
   try {
-    await addIncome(userId, formData.categoryId, formData.source, formData.amount, formData.date)
-    
-    const category = categories.value.find(c => c.id == formData.categoryId)
-    incomes.value.unshift({
-      id: Date.now(),
-      source: formData.source,
-      amount: Number(formData.amount),
-      category_id: formData.categoryId,
-      category_name: category?.name || 'Other',
-      category_color: category?.color || '#6b7280',
-      date: formData.date
-    })
-    
+    const result = await addIncome(userId, formData.categoryId, formData.source, formData.amount, formData.date)
+    if (result.income) {
+      incomes.value.unshift(result.income)
+    }
+
     emit('refresh')
   } catch (e) {
     console.error('Error:', e)
+    alert(e.message || 'Failed to add income')
   }
   
   showAddForm.value = false

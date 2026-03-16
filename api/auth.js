@@ -424,11 +424,41 @@ export default async function handler(req, res) {
     }
 
     if (action === 'addIncome') {
-      await p.query(
-        'INSERT INTO incomes (user_id, category_id, source, amount, date) VALUES (?, ?, ?, ?, ?)',
-        [userId, categoryId || null, source, amount, date || new Date().toISOString().split('T')[0]]
+      const selectedCategoryId = Number(categoryId)
+      const normalizedAmount = Number(amount)
+      const normalizedSource = String(source || '').trim()
+      const normalizedDate = date || new Date().toISOString().split('T')[0]
+
+      if (!userId || !selectedCategoryId || !normalizedSource || !Number.isFinite(normalizedAmount) || normalizedAmount <= 0) {
+        return res.status(400).json({ error: 'Invalid income data' })
+      }
+
+      const [categoryRows] = await p.query(
+        'SELECT id, name, color FROM categories WHERE id = ? AND user_id = ? AND type = ? LIMIT 1',
+        [selectedCategoryId, userId, 'income']
       )
-      return res.status(200).json({ success: true })
+
+      if (categoryRows.length === 0) {
+        return res.status(400).json({ error: 'Invalid income category' })
+      }
+
+      const [result] = await p.query(
+        'INSERT INTO incomes (user_id, category_id, source, amount, date) VALUES (?, ?, ?, ?, ?)',
+        [userId, selectedCategoryId, normalizedSource, normalizedAmount, normalizedDate]
+      )
+
+      return res.status(200).json({
+        success: true,
+        income: {
+          id: result.insertId,
+          source: normalizedSource,
+          amount: normalizedAmount,
+          category_id: selectedCategoryId,
+          category_name: categoryRows[0].name,
+          category_color: categoryRows[0].color,
+          date: normalizedDate
+        }
+      })
     }
 
     if (action === 'deleteIncome') {
@@ -456,12 +486,12 @@ export default async function handler(req, res) {
 
       // Recent transactions
       const [recentExpenses] = await p.query(
-        'SELECT e.*, c.name as category_name, c.color as category_color, "expense" as type FROM expenses e LEFT JOIN categories c ON e.category_id = c.id WHERE e.user_id = ? ORDER BY e.date DESC LIMIT 8',
+        "SELECT e.*, c.name as category_name, c.color as category_color, 'expense' as type FROM expenses e LEFT JOIN categories c ON e.category_id = c.id WHERE e.user_id = ? ORDER BY e.date DESC, e.created_at DESC LIMIT 8",
         [userId]
       )
 
       const [recentIncomes] = await p.query(
-        'SELECT i.*, c.name as category_name, c.color as category_color, "income" as type FROM incomes i LEFT JOIN categories c ON i.category_id = c.id WHERE i.user_id = ? ORDER BY i.date DESC LIMIT 8',
+        "SELECT i.*, c.name as category_name, c.color as category_color, 'income' as type FROM incomes i LEFT JOIN categories c ON i.category_id = c.id WHERE i.user_id = ? ORDER BY i.date DESC, i.created_at DESC LIMIT 8",
         [userId]
       )
 
