@@ -45,6 +45,96 @@ async function getPool() {
   }
 }
 
+async function ensureIndex(p, tableName, indexName, definition) {
+  const [rows] = await p.query(
+    `SELECT 1
+     FROM information_schema.statistics
+     WHERE table_schema = DATABASE()
+       AND table_name = ?
+       AND index_name = ?
+     LIMIT 1`,
+    [tableName, indexName]
+  )
+
+  if (rows.length === 0) {
+    await p.query(`CREATE INDEX ${indexName} ON ${tableName} ${definition}`)
+  }
+}
+
+async function setupDatabase() {
+  const p = await getPool()
+  if (!p) return false
+  
+  try {
+    // Users table
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        username VARCHAR(255) UNIQUE NOT NULL,
+        password_hash VARCHAR(255) NOT NULL,
+        name VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `)
+
+    // Categories table
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS categories (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        name VARCHAR(100) NOT NULL,
+        type ENUM('expense', 'income') NOT NULL DEFAULT 'expense',
+        color VARCHAR(20) DEFAULT '#6366f1',
+        icon VARCHAR(50) DEFAULT 'default',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `)
+
+    // Expenses table
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS expenses (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        category_id INT NOT NULL,
+        description VARCHAR(255) NOT NULL,
+        amount DECIMAL(10, 2) NOT NULL,
+        date DATE NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
+      )
+    `)
+
+    // Income table
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS incomes (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        category_id INT NOT NULL,
+        source VARCHAR(255) NOT NULL,
+        amount DECIMAL(10, 2) NOT NULL,
+        date DATE NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
+      )
+    `)
+
+    await ensureIndex(p, 'categories', 'idx_categories_user_type_name', '(user_id, type, name)')
+    await ensureIndex(p, 'categories', 'idx_categories_user_name', '(user_id, name)')
+    await ensureIndex(p, 'expenses', 'idx_expenses_user_date_created', '(user_id, date, created_at)')
+    await ensureIndex(p, 'expenses', 'idx_expenses_user_category', '(user_id, category_id)')
+    await ensureIndex(p, 'incomes', 'idx_incomes_user_date_created', '(user_id, date, created_at)')
+    await ensureIndex(p, 'incomes', 'idx_incomes_user_category', '(user_id, category_id)')
+
+    return true
+  } catch (error) {
+    console.error('Setup error:', error.message)
+    return false
+  }
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', true)
   res.setHeader('Access-Control-Allow-Origin', '*')
@@ -58,6 +148,15 @@ export default async function handler(req, res) {
   const { action, userId, username, password, name, categoryId, categoryName, categoryType, categoryColor, source, amount, description, date, startDate, endDate, search } = req.body
 
   const p = await getPool()
+
+  // Setup action - creates tables if they don't exist
+  if (action === 'setup') {
+    const success = await setupDatabase()
+    if (success) {
+      return res.status(200).json({ success: true, message: 'Database setup complete' })
+    }
+    return res.status(500).json({ error: 'Setup failed' })
+  }
 
   if (!p) {
     return res.status(500).json({ error: 'Database not configured' })
