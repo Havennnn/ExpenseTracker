@@ -66,22 +66,31 @@ function getDbConfig() {
   if (!dbUrl) return null
 
   const url = new URL(dbUrl)
-  const querySslMode = url.searchParams.get('ssl-mode') || url.searchParams.get('sslmode')
+  
+  // Remove ssl-mode from URL params to avoid MySQL2 warnings
+  url.searchParams.delete('ssl-mode')
+  url.searchParams.delete('sslmode')
+  
   const envSsl = getDbSslConfig()
-  const urlSsl = parseSslMode(querySslMode)
-  const ssl = envSsl || urlSsl
+  const ssl = envSsl || undefined
 
-  return {
+  const config = {
     host: url.hostname,
     port: Number(url.port || 3306),
     user: decodeURIComponent(url.username),
     password: decodeURIComponent(url.password),
     database: decodeURIComponent(url.pathname.replace(/^\//, '')),
-    ...(ssl ? { ssl } : {}),
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0
   }
+
+  // Add SSL config if available
+  if (ssl) {
+    config.ssl = ssl
+  }
+
+  return config
 }
 
 async function getPool() {
@@ -250,11 +259,13 @@ export default async function handler(req, res) {
     if (success) {
       return res.status(200).json({ success: true, message: 'Database setup complete' })
     }
-    return res.status(500).json({ error: 'Setup failed' })
+    return res.status(500).json({ error: `Setup failed: ${lastPoolError}` })
   }
 
   if (!p) {
-    return res.status(500).json({ error: lastPoolError || 'Database not configured' })
+    const errorMsg = lastPoolError || 'Database not configured'
+    console.error('Pool error:', errorMsg)
+    return res.status(500).json({ error: `Database error: ${errorMsg}` })
   }
 
   try {
@@ -745,6 +756,9 @@ export default async function handler(req, res) {
      return res.status(400).json({ error: 'Unknown action' })
    } catch (error) {
      console.error('Database error:', error)
-     return res.status(500).json({ error: error.message })
+     const errorMsg = error.code === 'ENOTFOUND' 
+       ? `Cannot resolve database host: ${error.hostname}. Check your MYSQL_URL environment variable and ensure the host is accessible.`
+       : error.message
+     return res.status(500).json({ error: errorMsg })
    }
  }
