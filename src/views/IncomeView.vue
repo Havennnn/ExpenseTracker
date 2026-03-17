@@ -197,8 +197,8 @@ onUnmounted(() => {
   <div class="pb-24">
     <FilterBar 
       title="Income"
-      add-button-color="bg-emerald-600"
-      add-button-text-color="text-white"
+      add-button-color="bg-zinc-100"
+      add-button-text-color="text-zinc-900"
       :show-category-filter="true"
       :categories="categories"
       :is-bulk-mode="isBulkMode"
@@ -207,7 +207,7 @@ onUnmounted(() => {
       @toggle-bulk-mode="toggleBulkMode"
     />
 
-    <main class="max-w-sm mx-auto py-4 space-y-4">
+    <main class="max-w-sm mx-auto px-4 py-4 space-y-4">
       <!-- Bulk Actions Bar -->
       <BulkActionsBar 
         :show="isBulkMode" 
@@ -221,8 +221,8 @@ onUnmounted(() => {
         :is-submitting="isSaving"
         type="income"
         :categories="categories"
-        button-color="bg-emerald-600"
-        button-text-color="text-white"
+        button-color="bg-zinc-100"
+        button-text-color="text-zinc-900"
         @save="saveIncome"
         @cancel="showAddForm = false"
       />
@@ -231,7 +231,7 @@ onUnmounted(() => {
       <ListSkeleton v-if="isLoading" />
 
       <!-- Empty -->
-      <div v-else-if="incomes.length === 0" class="text-center py-8 text-zinc-500">
+      <div v-else-if="incomes.length === 0" class="rounded-[1.5rem] border border-dashed border-zinc-800 bg-zinc-900/60 px-4 py-10 text-center text-zinc-500">
         No income found
       </div>
 
@@ -248,10 +248,10 @@ onUnmounted(() => {
         @confirm-delete="confirmDelete"
       />
 
-      <div v-if="hasMore && !isLoading" class="text-center py-4">
+      <div v-if="hasMore && !isLoading" class="text-center py-2">
         <button
           @click="loadMore"
-          class="text-zinc-500 text-sm hover:text-zinc-300"
+          class="rounded-full border border-zinc-800 bg-zinc-900 px-4 py-2 text-sm text-zinc-500 hover:text-zinc-300"
         >
           Load more...
         </button>
@@ -259,7 +259,7 @@ onUnmounted(() => {
 
       <ListSkeleton v-if="isLoadingMore" :rows="2" :show-month-header="false" />
 
-      <div class="text-center text-zinc-600 text-xs pt-2">
+      <div class="text-center text-zinc-600 text-xs pt-1">
         {{ incomes.length }} of {{ total }} income entries
       </div>
     </main>

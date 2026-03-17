@@ -5,10 +5,14 @@ import { getExpenses, getIncomes } from '../lib/db'
 import { formatCurrency } from '../lib/utils'
 
 const userId = localStorage.getItem('userId')
-const isLoading = ref(true)
+const activeSection = ref('monthly')
+const isMonthlyLoading = ref(true)
+const isForecastLoading = ref(true)
 const reportMonth = ref(new Date().toISOString().slice(0, 7))
 const expenses = ref([])
 const incomes = ref([])
+const forecastExpenses = ref([])
+const forecastIncomes = ref([])
 
 const monthLabel = computed(() => {
   const [year, month] = reportMonth.value.split('-')
@@ -22,6 +26,24 @@ const totalExpenses = computed(() => expenses.value.reduce((sum, item) => sum + 
 const totalIncome = computed(() => incomes.value.reduce((sum, item) => sum + Number(item.amount || 0), 0))
 const netBalance = computed(() => totalIncome.value - totalExpenses.value)
 const hasData = computed(() => expenses.value.length > 0 || incomes.value.length > 0)
+const currentDate = computed(() => new Date())
+const forecastMonthLabel = computed(() => {
+  return currentDate.value.toLocaleDateString('en-US', {
+    month: 'long',
+    year: 'numeric'
+  })
+})
+const totalForecastExpenses = computed(() => forecastExpenses.value.reduce((sum, item) => sum + Number(item.amount || 0), 0))
+const totalForecastIncome = computed(() => forecastIncomes.value.reduce((sum, item) => sum + Number(item.amount || 0), 0))
+const currentBalance = computed(() => totalForecastIncome.value - totalForecastExpenses.value)
+const daysElapsed = computed(() => currentDate.value.getDate())
+const daysInMonth = computed(() => new Date(currentDate.value.getFullYear(), currentDate.value.getMonth() + 1, 0).getDate())
+const daysRemaining = computed(() => Math.max(daysInMonth.value - daysElapsed.value, 0))
+const averageDailyExpense = computed(() => totalForecastExpenses.value / Math.max(daysElapsed.value, 1))
+const projectedMonthExpense = computed(() => averageDailyExpense.value * daysInMonth.value)
+const projectedRemainingExpense = computed(() => averageDailyExpense.value * daysRemaining.value)
+const projectedEndBalance = computed(() => totalForecastIncome.value - projectedMonthExpense.value)
+const willFinishPositive = computed(() => projectedEndBalance.value >= 0)
 
 const expenseBreakdown = computed(() => buildBreakdown(expenses.value))
 const incomeBreakdown = computed(() => buildBreakdown(incomes.value))
@@ -66,7 +88,7 @@ function buildBreakdown(items) {
 }
 
 async function loadReport() {
-  isLoading.value = true
+  isMonthlyLoading.value = true
 
   try {
     const { start, end } = getMonthRange(reportMonth.value)
@@ -82,7 +104,29 @@ async function loadReport() {
     expenses.value = []
     incomes.value = []
   } finally {
-    isLoading.value = false
+    isMonthlyLoading.value = false
+  }
+}
+
+async function loadForecast() {
+  isForecastLoading.value = true
+
+  try {
+    const currentMonth = new Date().toISOString().slice(0, 7)
+    const { start, end } = getMonthRange(currentMonth)
+    const [expenseItems, incomeItems] = await Promise.all([
+      fetchAllPages(getExpenses, start, end),
+      fetchAllPages(getIncomes, start, end)
+    ])
+
+    forecastExpenses.value = expenseItems
+    forecastIncomes.value = incomeItems
+  } catch (e) {
+    console.error('Error loading forecast:', e)
+    forecastExpenses.value = []
+    forecastIncomes.value = []
+  } finally {
+    isForecastLoading.value = false
   }
 }
 
@@ -108,45 +152,79 @@ function exportCsv() {
   URL.revokeObjectURL(url)
 }
 
-onMounted(loadReport)
+onMounted(() => {
+  loadReport()
+  loadForecast()
+})
 watch(reportMonth, loadReport)
 </script>
 
 <template>
   <div class="pb-24">
-    <header class="sticky top-0 z-10 bg-zinc-950/80 backdrop-blur border-b border-zinc-800">
-      <div class="max-w-sm mx-auto px-4 py-3 space-y-3">
-        <div class="flex items-center justify-between">
+    <header class="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-950/80 backdrop-blur">
+      <div class="max-w-sm mx-auto px-4 py-3">
+        <div>
           <h1 class="text-xl font-semibold text-zinc-100">Reports</h1>
-          <button
-            @click="exportCsv"
-            :disabled="!hasData || isLoading"
-            class="h-8 px-2.5 rounded-md text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed bg-zinc-100 text-zinc-900 hover:bg-zinc-200"
-          >
-            Export CSV
-          </button>
+          <p class="text-xs text-zinc-500">Insights and outlook</p>
         </div>
-        <input
-          v-model="reportMonth"
-          type="month"
-          class="w-full h-10 px-3 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-100 text-sm"
-        />
       </div>
     </header>
 
     <main class="max-w-sm mx-auto py-4 px-4 space-y-4">
-      <div v-if="isLoading">
+      <section class="space-y-3">
+        <div class="grid grid-cols-2 gap-2 rounded-2xl border border-zinc-800 bg-zinc-900 p-1">
+          <button
+            @click="activeSection = 'monthly'"
+            class="h-10 rounded-xl text-sm font-medium transition-colors"
+            :class="activeSection === 'monthly' ? 'bg-zinc-100 text-zinc-900' : 'text-zinc-400 hover:text-zinc-200'"
+          >
+            Monthly Reports
+          </button>
+          <button
+            @click="activeSection = 'forecast'"
+            class="h-10 rounded-xl text-sm font-medium transition-colors"
+            :class="activeSection === 'forecast' ? 'bg-zinc-100 text-zinc-900' : 'text-zinc-400 hover:text-zinc-200'"
+          >
+            This Month Forecast
+          </button>
+        </div>
+
+        <div v-if="activeSection === 'monthly'" class="flex items-center justify-between gap-3">
+          <input
+            v-model="reportMonth"
+            type="month"
+            class="w-full h-10 px-3 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-100 text-sm"
+          />
+          <button
+            @click="exportCsv"
+            :disabled="!hasData || isMonthlyLoading"
+            class="h-10 shrink-0 px-3 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed bg-zinc-100 text-zinc-900 hover:bg-zinc-200"
+          >
+            Export CSV
+          </button>
+        </div>
+      </section>
+
+      <div v-if="activeSection === 'monthly' && isMonthlyLoading">
+        <ReportSkeleton />
+      </div>
+      <div v-else-if="activeSection === 'forecast' && isForecastLoading">
         <ReportSkeleton />
       </div>
 
-      <template v-else>
-        <div class="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-3">
-          <div>
-            <p class="text-zinc-500 text-sm">{{ monthLabel }}</p>
-            <p class="text-3xl font-semibold" :class="netBalance >= 0 ? 'text-emerald-400' : 'text-red-400'">
-              {{ formatCurrency(netBalance) }}
-            </p>
-            <p class="text-zinc-500 text-xs">Net balance</p>
+      <template v-else-if="activeSection === 'monthly'">
+        <div class="bg-zinc-900 border border-zinc-800 rounded-[1.75rem] p-5 space-y-3">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <p class="text-zinc-500 text-sm">{{ monthLabel }}</p>
+              <p class="text-3xl font-semibold" :class="netBalance >= 0 ? 'text-emerald-400' : 'text-red-400'">
+                {{ formatCurrency(netBalance) }}
+              </p>
+              <p class="text-zinc-500 text-xs">Net balance</p>
+            </div>
+            <span class="rounded-full border border-zinc-800 bg-zinc-950 px-3 py-1 text-xs text-zinc-500">
+              {{ hasData ? 'Active month data' : 'No entries yet' }}
+            </span>
           </div>
           <div class="grid grid-cols-2 gap-3">
             <div class="bg-zinc-950 border border-zinc-800 rounded-xl p-4">
@@ -207,6 +285,72 @@ watch(reportMonth, loadReport)
             </div>
           </section>
         </template>
+      </template>
+
+      <template v-else>
+        <div class="bg-zinc-900 border border-zinc-800 rounded-[1.75rem] p-5 space-y-4">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <p class="text-zinc-500 text-sm">{{ forecastMonthLabel }}</p>
+              <p class="text-3xl font-semibold" :class="willFinishPositive ? 'text-emerald-400' : 'text-red-400'">
+                {{ willFinishPositive ? 'On track' : 'Needs attention' }}
+              </p>
+              <p class="text-zinc-500 text-xs">Projection based on your current month activity</p>
+            </div>
+            <span class="rounded-full border border-zinc-800 bg-zinc-950 px-3 py-1 text-xs" :class="willFinishPositive ? 'text-emerald-400' : 'text-red-400'">
+              {{ daysRemaining }} days left
+            </span>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div class="bg-zinc-950 border border-zinc-800 rounded-xl p-4">
+              <p class="text-zinc-500 text-xs">Current balance</p>
+              <p class="text-xl font-semibold text-zinc-100">{{ formatCurrency(currentBalance) }}</p>
+            </div>
+            <div class="bg-zinc-950 border border-zinc-800 rounded-xl p-4">
+              <p class="text-zinc-500 text-xs">Projected month end</p>
+              <p class="text-xl font-semibold" :class="projectedEndBalance >= 0 ? 'text-emerald-400' : 'text-red-400'">{{ formatCurrency(projectedEndBalance) }}</p>
+            </div>
+            <div class="bg-zinc-950 border border-zinc-800 rounded-xl p-4">
+              <p class="text-zinc-500 text-xs">Average daily expense</p>
+              <p class="text-xl font-semibold text-red-400">{{ formatCurrency(averageDailyExpense) }}</p>
+            </div>
+            <div class="bg-zinc-950 border border-zinc-800 rounded-xl p-4">
+              <p class="text-zinc-500 text-xs">Projected remaining spend</p>
+              <p class="text-xl font-semibold text-red-400">{{ formatCurrency(projectedRemainingExpense) }}</p>
+            </div>
+          </div>
+        </div>
+
+        <section class="space-y-3">
+          <div class="flex items-center justify-between">
+            <h2 class="text-sm font-medium text-zinc-400">Forecast Details</h2>
+            <span class="text-xs text-zinc-600">{{ daysElapsed }} of {{ daysInMonth }} days</span>
+          </div>
+          <div class="space-y-3">
+            <div class="bg-zinc-900 border border-zinc-800 rounded-lg p-4 flex items-center justify-between">
+              <div>
+                <p class="text-zinc-100 font-medium">Income logged so far</p>
+                <p class="text-zinc-500 text-xs mt-1">{{ forecastIncomes.length }} entries</p>
+              </div>
+              <p class="text-emerald-400 font-medium">{{ formatCurrency(totalForecastIncome) }}</p>
+            </div>
+            <div class="bg-zinc-900 border border-zinc-800 rounded-lg p-4 flex items-center justify-between">
+              <div>
+                <p class="text-zinc-100 font-medium">Expenses logged so far</p>
+                <p class="text-zinc-500 text-xs mt-1">{{ forecastExpenses.length }} entries</p>
+              </div>
+              <p class="text-red-400 font-medium">{{ formatCurrency(totalForecastExpenses) }}</p>
+            </div>
+            <div class="bg-zinc-900 border border-zinc-800 rounded-lg p-4 flex items-center justify-between">
+              <div>
+                <p class="text-zinc-100 font-medium">Projected total expense</p>
+                <p class="text-zinc-500 text-xs mt-1">If current pace continues</p>
+              </div>
+              <p class="text-red-400 font-medium">{{ formatCurrency(projectedMonthExpense) }}</p>
+            </div>
+          </div>
+        </section>
       </template>
     </main>
   </div>

@@ -69,21 +69,26 @@ function clearDateFilter() {
 </script>
 
 <template>
-  <header class="stick top-0 z-10 bg-zinc-950/80 backdrop-blur border-b border-zinc-800">
+  <header class="sticky top-0 z-10 border-b border-zinc-800 bg-zinc-950/80 backdrop-blur">
     <div class="max-w-sm mx-auto px-4 py-3 space-y-3">
       <div class="flex items-center justify-between">
-        <h1 class="text-xl font-semibold text-zinc-100">{{ title }}</h1>
+        <div>
+          <h1 class="text-xl font-semibold text-zinc-100">{{ title }}</h1>
+          <p class="text-xs text-zinc-500">Search, filter, and manage entries</p>
+        </div>
         <button 
           @click="emit('toggleBulkMode')"
-          class="p-2 transition-colors"
+          class="flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-900 transition-colors"
           :class="isBulkMode ? 'text-red-400' : 'text-zinc-400 hover:text-zinc-200'"
+          :aria-label="isBulkMode ? 'Exit selection mode' : 'Enter selection mode'"
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 6h11M9 12h11M9 18h11" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.5 4.5h3v3h-3zM3.5 10.5h3v3h-3zM3.5 16.5h3v3h-3z" />
           </svg>
         </button>
       </div>
-      
+
       <!-- Search & Filter Row -->
       <div class="flex items-center gap-2">
         <div class="flex-1 relative">
@@ -92,7 +97,7 @@ function clearDateFilter() {
             @input="handleSearch"
             type="text" 
             placeholder="Search..."
-            class="w-full h-10 px-3 pl-9 bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-100 placeholder:text-zinc-500 text-sm"
+            class="w-full h-11 rounded-xl border border-zinc-800 bg-zinc-900 px-3 pl-9 text-sm text-zinc-100 placeholder:text-zinc-500"
           />
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -102,8 +107,8 @@ function clearDateFilter() {
         <button 
           v-if="showDateFilter || showCategoryFilter"
           @click="toggleDateFilter"
-          class="w-10 h-10 flex items-center justify-center rounded-lg transition-colors"
-          :class="hasActiveFilter ? 'bg-red-500/20 text-red-400' : 'bg-zinc-800 text-zinc-400 hover:text-zinc-200'"
+          class="flex h-11 w-11 items-center justify-center rounded-xl border border-zinc-800 transition-colors"
+          :class="hasActiveFilter ? 'bg-red-500/15 text-red-400' : 'bg-zinc-900 text-zinc-400 hover:text-zinc-200'"
         >
           <svg v-if="!hasActiveFilter" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h18l-7 8v6l-4 2v-8L3 4z" />
@@ -115,7 +120,7 @@ function clearDateFilter() {
         
         <button 
           @click="emit('toggleAddForm')"
-          class="w-10 h-10 flex items-center justify-center rounded-lg transition-colors"
+          class="flex h-11 w-11 items-center justify-center rounded-xl transition-colors"
           :class="`${addButtonColor} ${addButtonTextColor}`"
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -127,8 +132,8 @@ function clearDateFilter() {
       <!-- Active Filters Display -->
       <div v-if="hasActiveFilter" class="flex flex-wrap items-center gap-2 text-xs text-zinc-400">
         <span>Filter:</span>
-        <span v-if="hasDateFilter" class="bg-zinc-800 px-2 py-1 rounded">{{ startDate }} - {{ endDate }}</span>
-        <span v-if="selectedCategoryId" class="bg-zinc-800 px-2 py-1 rounded">
+        <span v-if="hasDateFilter" class="rounded-full border border-zinc-800 bg-zinc-900 px-2.5 py-1">{{ startDate }} - {{ endDate }}</span>
+        <span v-if="selectedCategoryId" class="rounded-full border border-zinc-800 bg-zinc-900 px-2.5 py-1">
           {{ categories.find(category => String(category.id) === String(selectedCategoryId))?.name || 'Category' }}
         </span>
         <button @click="clearDateFilter" class="text-red-400 hover:text-red-300">Clear</button>
@@ -139,7 +144,7 @@ function clearDateFilter() {
 
   <Teleport to="body">
     <div v-if="showDateModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" @click.self="showDateModal = false">
-      <div class="bg-zinc-900 border border-zinc-800 rounded-xl p-4 w-full max-w-sm shadow-2xl">
+      <div class="w-full max-w-sm rounded-[1.5rem] border border-zinc-800 bg-zinc-900 p-4 shadow-2xl">
         <h3 class="text-lg font-medium text-zinc-100 mb-4">Filters</h3>
         
         <div class="space-y-3">

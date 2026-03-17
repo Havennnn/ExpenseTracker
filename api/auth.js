@@ -2,7 +2,7 @@ import mysql from 'mysql2/promise'
 
 let pool = null
 let schemaReady = false
-const REQUIRED_TABLES = ['users', 'categories', 'expenses', 'incomes']
+const REQUIRED_TABLES = ['users', 'categories', 'expenses', 'incomes', 'plans']
 
 function getDbUrl() {
   if (process.env.MYSQL_URL) {
@@ -123,12 +123,24 @@ async function setupDatabase() {
       )
     `)
 
+    await p.query(`
+      CREATE TABLE IF NOT EXISTS plans (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL UNIQUE,
+        target_savings_percent DECIMAL(5, 2) NOT NULL DEFAULT 20.00,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `)
+
     await ensureIndex(p, 'categories', 'idx_categories_user_type_name', '(user_id, type, name)')
     await ensureIndex(p, 'categories', 'idx_categories_user_name', '(user_id, name)')
     await ensureIndex(p, 'expenses', 'idx_expenses_user_date_created', '(user_id, date, created_at)')
     await ensureIndex(p, 'expenses', 'idx_expenses_user_category', '(user_id, category_id)')
     await ensureIndex(p, 'incomes', 'idx_incomes_user_date_created', '(user_id, date, created_at)')
     await ensureIndex(p, 'incomes', 'idx_incomes_user_category', '(user_id, category_id)')
+    await ensureIndex(p, 'plans', 'idx_plans_user_id', '(user_id)')
 
     return true
   } catch (error) {
@@ -172,7 +184,7 @@ export default async function handler(req, res) {
     return res.status(200).end()
   }
 
-  const { action, userId, username, password, name, categoryId, categoryName, categoryType, categoryColor, source, amount, description, date, startDate, endDate, search } = req.body
+  const { action, userId, username, password, name, categoryId, categoryName, categoryType, categoryColor, source, amount, description, date, startDate, endDate, search, targetSavingsPercent } = req.body
 
   const p = await getPool()
 
@@ -193,6 +205,35 @@ export default async function handler(req, res) {
     const schemaAvailable = await ensureSchema(p)
     if (!schemaAvailable) {
       return res.status(500).json({ error: 'Database setup failed' })
+    }
+
+    function getCycleRange(now = new Date()) {
+      const year = now.getFullYear()
+      const month = now.getMonth()
+      const day = now.getDate()
+      const cycleStartDay = day <= 15 ? 1 : 16
+      const cycleEndDay = day <= 15 ? 15 : new Date(year, month + 1, 0).getDate()
+
+      const cycleStart = new Date(year, month, cycleStartDay)
+      const cycleEnd = new Date(year, month, cycleEndDay)
+      const fullCycleDays = cycleEndDay - cycleStartDay + 1
+      const daysElapsed = day - cycleStartDay + 1
+      const daysRemaining = Math.max(cycleEndDay - day, 0)
+      const daysLeft = Math.max(cycleEndDay - day + 1, 1)
+
+      return {
+        cycleLabel: `${cycleStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${cycleEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`,
+        cycleName: cycleStartDay === 1 ? 'Cycle 1' : 'Cycle 2',
+        budgetLabel: cycleStartDay === 1 ? `Budget until ${cycleEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : `Budget until ${cycleEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`,
+        cycleStart: cycleStart.toISOString().split('T')[0],
+        cycleEnd: cycleEnd.toISOString().split('T')[0],
+        cycleStartDay,
+        cycleEndDay,
+        fullCycleDays,
+        daysElapsed,
+        daysRemaining,
+        daysLeft
+      }
     }
 
     // ============ AUTH ============
@@ -466,6 +507,103 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true })
     }
 
+    // ============ PLAN ============
+    if (action === 'savePlan') {
+      const normalizedPercent = Number(targetSavingsPercent)
+
+      if (!userId || !Number.isFinite(normalizedPercent) || normalizedPercent < 0 || normalizedPercent > 100) {
+        return res.status(400).json({ error: 'Invalid plan data' })
+      }
+
+      await p.query(
+        `INSERT INTO plans (user_id, target_savings_percent)
+         VALUES (?, ?)
+         ON DUPLICATE KEY UPDATE
+           target_savings_percent = VALUES(target_savings_percent),
+           updated_at = CURRENT_TIMESTAMP`,
+        [userId, normalizedPercent]
+      )
+
+      return res.status(200).json({ success: true })
+    }
+
+    if (action === 'resetPlan') {
+      await p.query('DELETE FROM plans WHERE user_id = ?', [userId])
+      return res.status(200).json({ success: true })
+    }
+
+    if (action === 'getPlan') {
+      const [planRows] = await p.query(
+        'SELECT target_savings_percent FROM plans WHERE user_id = ? LIMIT 1',
+        [userId]
+      )
+
+      const cycle = getCycleRange()
+
+      const [[balanceExpenses], [balanceIncome], [cycleExpenseRows]] = await Promise.all([
+        p.query(
+          'SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE user_id = ?',
+          [userId]
+        ),
+        p.query(
+          'SELECT COALESCE(SUM(amount), 0) AS total FROM incomes WHERE user_id = ?',
+          [userId]
+        ),
+        p.query(
+          'SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE user_id = ? AND date BETWEEN ? AND ?',
+          [userId, cycle.cycleStart, cycle.cycleEnd]
+        )
+      ])
+
+      const totalExpenses = Number(balanceExpenses[0]?.total || 0)
+      const totalIncome = Number(balanceIncome[0]?.total || 0)
+      const currentBalance = totalIncome - totalExpenses
+
+      if (planRows.length === 0) {
+        return res.status(200).json({
+          planExists: false,
+          cycle,
+          currentBalance,
+          suggestedPercent: 20
+        })
+      }
+
+      const targetSavingsPercent = Number(planRows[0].target_savings_percent || 0)
+      const targetSavingsAmount = currentBalance > 0
+        ? currentBalance * (targetSavingsPercent / 100)
+        : 0
+      const spendableAmount = currentBalance - targetSavingsAmount
+      const cycleExpenses = Number(cycleExpenseRows[0]?.total || 0)
+      const remainingBudget = spendableAmount - cycleExpenses
+      const dailyBudget = remainingBudget / Math.max(cycle.daysLeft, 1)
+
+      const status = remainingBudget < 0
+        ? 'over_budget'
+        : dailyBudget > 0
+          ? 'on_track'
+          : 'no_budget'
+
+      const message = currentBalance <= 0
+        ? 'Your current balance is zero or below, so this plan is very tight.'
+        : remainingBudget < 0
+          ? `You are over this plan by ${Math.abs(remainingBudget).toFixed(2)} for the current window.`
+          : `Spend up to ${dailyBudget.toFixed(2)} per day until ${cycle.cycleEndDay}.`
+
+      return res.status(200).json({
+        planExists: true,
+        cycle,
+        currentBalance,
+        targetSavingsPercent,
+        targetSavingsAmount,
+        spendableAmount,
+        cycleExpenses,
+        remainingBudget,
+        dailyBudget,
+        status,
+        message
+      })
+    }
+
     // ============ DASHBOARD ============
     if (action === 'getDashboard') {
       const now = new Date()
@@ -507,9 +645,50 @@ export default async function handler(req, res) {
       })
     }
 
-    return res.status(400).json({ error: 'Unknown action' })
-  } catch (error) {
-    console.error('Database error:', error)
-    return res.status(500).json({ error: error.message })
-  }
-}
+     // ============ PREDICTION ============
+     if (action === 'predict15Days') {
+       const now = new Date()
+       const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]
+       const today = now.toISOString().split('T')[0]
+
+       // Get total expenses and income from first day of month to today
+       const [expenseResult] = await p.query(
+         'SELECT COALESCE(SUM(amount), 0) as total FROM expenses WHERE user_id = ? AND date BETWEEN ? AND ?',
+         [userId, firstDayOfMonth, today]
+       )
+       const [incomeResult] = await p.query(
+         'SELECT COALESCE(SUM(amount), 0) as total FROM incomes WHERE user_id = ? AND date BETWEEN ? AND ?',
+         [userId, firstDayOfMonth, today]
+       )
+
+       const totalExpensesSoFar = parseFloat(expenseResult[0].total) || 0
+       const totalIncomeSoFar = parseFloat(incomeResult[0].total) || 0
+       const currentBalance = totalIncomeSoFar - totalExpensesSoFar
+
+       // Calculate days elapsed in current month
+       const daysElapsed = now.getDate() // 1-based day of month
+       let averageDailyExpense = 0
+       if (daysElapsed > 0) {
+         averageDailyExpense = totalExpensesSoFar / daysElapsed
+       }
+
+       const projected15DayExpense = averageDailyExpense * 15
+       const willLast = currentBalance >= projected15DayExpense
+
+       return res.status(200).json({
+         willLast,
+         currentBalance,
+         projected15DayExpense,
+         averageDailyExpense,
+         daysElapsed,
+         totalExpensesSoFar,
+         totalIncomeSoFar
+       })
+     }
+
+     return res.status(400).json({ error: 'Unknown action' })
+   } catch (error) {
+     console.error('Database error:', error)
+     return res.status(500).json({ error: error.message })
+   }
+ }

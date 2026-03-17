@@ -188,3 +188,10 @@ function toggleMode() {
     </div>
   </div>
 </template>
+
+<style scoped>
+input[type='password']::-ms-reveal,
+input[type='password']::-ms-clear {
+  display: none;
+}
+</style>

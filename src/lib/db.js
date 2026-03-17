@@ -69,6 +69,23 @@ export async function deleteIncome(userId, incomeId) {
   return fetchAPI('auth', { action: 'deleteIncome', userId, incomeId })
 }
 
+// Plan
+export async function getPlan(userId) {
+  return fetchAPI('auth', { action: 'getPlan', userId })
+}
+
+export async function savePlan(userId, targetSavingsPercent) {
+  return fetchAPI('auth', { action: 'savePlan', userId, targetSavingsPercent })
+}
+
+export async function resetPlan(userId) {
+  return fetchAPI('auth', { action: 'resetPlan', userId })
+}
+
+export async function getPrediction(userId) {
+  return fetchAPI('auth', { action: 'predict15Days', userId })
+}
+
 // Dashboard
 export async function getDashboard(userId) {
   return fetchAPI('auth', { action: 'getDashboard', userId })

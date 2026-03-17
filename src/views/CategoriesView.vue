@@ -202,20 +202,20 @@ onUnmounted(() => {
       @toggle-bulk-mode="toggleBulkMode"
     />
 
-    <main class="max-w-sm mx-auto py-4 space-y-4">
+    <main class="max-w-sm mx-auto px-4 py-4 space-y-4">
       <!-- Type Tabs -->
-      <div class="flex gap-2 px-4">
+      <div class="grid grid-cols-2 gap-2 rounded-2xl border border-zinc-800 bg-zinc-900 p-1">
         <button 
           @click="handleTypeChange('expense')"
-          class="flex-1 h-10 rounded-lg text-sm font-medium transition-colors"
-          :class="activeType === 'expense' ? 'bg-red-500/20 text-red-400 border border-red-500' : 'bg-zinc-800 text-zinc-400 border border-zinc-700'"
+          class="h-10 rounded-xl text-sm font-medium transition-colors"
+          :class="activeType === 'expense' ? 'bg-zinc-100 text-zinc-900' : 'text-zinc-400 hover:text-zinc-200'"
         >
           Expense
         </button>
         <button 
           @click="handleTypeChange('income')"
-          class="flex-1 h-10 rounded-lg text-sm font-medium transition-colors"
-          :class="activeType === 'income' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500' : 'bg-zinc-800 text-zinc-400 border border-zinc-700'"
+          class="h-10 rounded-xl text-sm font-medium transition-colors"
+          :class="activeType === 'income' ? 'bg-zinc-100 text-zinc-900' : 'text-zinc-400 hover:text-zinc-200'"
         >
           Income
         </button>
@@ -240,16 +240,16 @@ onUnmounted(() => {
       <ListSkeleton v-if="isLoading" :show-month-header="false" />
 
       <!-- Empty -->
-      <div v-else-if="filteredCategories.length === 0" class="text-center py-8 text-zinc-500 px-4">
+      <div v-else-if="filteredCategories.length === 0" class="rounded-[1.5rem] border border-dashed border-zinc-800 bg-zinc-900/60 px-4 py-10 text-center text-zinc-500">
         {{ searchQuery ? 'No categories found' : 'No categories yet. Add one above!' }}
       </div>
 
       <!-- Categories List -->
-      <div v-else class="space-y-3 px-4">
+      <div v-else class="space-y-3">
         <div 
           v-for="cat in filteredCategories" 
           :key="cat.id"
-          class="bg-zinc-900 border border-zinc-800 rounded-lg p-3 flex items-center justify-between"
+          class="rounded-xl border border-zinc-800 bg-zinc-900 p-3 flex items-center justify-between"
         >
           <div v-if="isBulkMode" class="mr-2">
             <input 
@@ -280,10 +280,10 @@ onUnmounted(() => {
       </div>
 
       <!-- Load More -->
-      <div v-if="hasMore && !isLoading" class="text-center py-4">
+      <div v-if="hasMore && !isLoading" class="text-center py-2">
         <button 
           @click="loadMore"
-          class="text-zinc-500 text-sm hover:text-zinc-300"
+          class="rounded-full border border-zinc-800 bg-zinc-900 px-4 py-2 text-sm text-zinc-500 hover:text-zinc-300"
         >
           Load more...
         </button>
@@ -293,7 +293,7 @@ onUnmounted(() => {
       <ListSkeleton v-if="isLoadingMore" :rows="2" :show-month-header="false" />
 
       <!-- Total count -->
-      <div class="text-center text-zinc-600 text-xs pt-2">
+      <div class="text-center text-zinc-600 text-xs pt-1">
         {{ filteredCategories.length }} categories
       </div>
     </main>
