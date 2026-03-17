@@ -25,15 +25,41 @@ function getDbUrl() {
   )
 }
 
+function getDbSslConfig() {
+  const sslMode = String(process.env.MYSQL_SSL_MODE || '').toLowerCase()
+  const sslCa = process.env.MYSQL_SSL_CA || process.env.MYSQL_SSL_CA_BASE64
+  const isBase64 = Boolean(process.env.MYSQL_SSL_CA_BASE64 && !process.env.MYSQL_SSL_CA)
+
+  if (!sslMode && !sslCa) {
+    return undefined
+  }
+
+  if (sslMode === 'disabled' || sslMode === 'off' || sslMode === 'false') {
+    return undefined
+  }
+
+  const ssl = {
+    rejectUnauthorized: sslMode !== 'required_no_verify'
+  }
+
+  if (sslCa) {
+    ssl.ca = isBase64 ? Buffer.from(sslCa, 'base64').toString('utf8') : sslCa
+  }
+
+  return ssl
+}
+
 async function getPool() {
   if (pool) return pool
 
   const dbUrl = getDbUrl()
+  const ssl = getDbSslConfig()
   if (!dbUrl) return null
 
   try {
     pool = mysql.createPool({
       uri: dbUrl,
+      ...(ssl ? { ssl } : {}),
       waitForConnections: true,
       connectionLimit: 10,
       queueLimit: 0
