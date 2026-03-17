@@ -57,8 +57,12 @@ async function handleSubmit() {
       error.value = 'Username does not exist'
     } else if (errorMessage.includes('password')) {
       error.value = 'Incorrect password'
-    } else if (errorMessage.includes('Database') || errorMessage.includes('API error')) {
-      error.value = 'Database error. Please ensure tables are created.'
+    } else if (errorMessage.includes('ENOTFOUND')) {
+      error.value = 'Database host could not be reached. Check your Vercel database host settings.'
+    } else if (errorMessage.includes('ECONNREFUSED')) {
+      error.value = 'Database connection was refused. Check host, port, and SSL settings.'
+    } else if (errorMessage.includes('Database setup failed')) {
+      error.value = 'Database connection worked, but schema setup failed.'
     } else {
       error.value = errorMessage
     }

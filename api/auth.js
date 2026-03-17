@@ -2,6 +2,7 @@ import mysql from 'mysql2/promise'
 
 let pool = null
 let schemaReady = false
+let lastPoolError = ''
 const REQUIRED_TABLES = ['users', 'categories', 'expenses', 'incomes', 'plans']
 
 function getDbUrl() {
@@ -49,25 +50,54 @@ function getDbSslConfig() {
   return ssl
 }
 
+function parseSslMode(value = '') {
+  const normalized = String(value || '').toLowerCase()
+  if (!normalized || normalized === 'disabled' || normalized === 'off' || normalized === 'false') {
+    return undefined
+  }
+
+  return {
+    rejectUnauthorized: normalized !== 'required_no_verify' && normalized !== 'preferred'
+  }
+}
+
+function getDbConfig() {
+  const dbUrl = getDbUrl()
+  if (!dbUrl) return null
+
+  const url = new URL(dbUrl)
+  const querySslMode = url.searchParams.get('ssl-mode') || url.searchParams.get('sslmode')
+  const envSsl = getDbSslConfig()
+  const urlSsl = parseSslMode(querySslMode)
+  const ssl = envSsl || urlSsl
+
+  return {
+    host: url.hostname,
+    port: Number(url.port || 3306),
+    user: decodeURIComponent(url.username),
+    password: decodeURIComponent(url.password),
+    database: decodeURIComponent(url.pathname.replace(/^\//, '')),
+    ...(ssl ? { ssl } : {}),
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0
+  }
+}
+
 async function getPool() {
   if (pool) return pool
 
-  const dbUrl = getDbUrl()
-  const ssl = getDbSslConfig()
-  if (!dbUrl) return null
+  const dbConfig = getDbConfig()
+  if (!dbConfig) return null
 
   try {
-    pool = mysql.createPool({
-      uri: dbUrl,
-      ...(ssl ? { ssl } : {}),
-      waitForConnections: true,
-      connectionLimit: 10,
-      queueLimit: 0
-    })
+    pool = mysql.createPool(dbConfig)
     const connection = await pool.getConnection()
     connection.release()
+    lastPoolError = ''
     return pool
   } catch (error) {
+    lastPoolError = error.message
     console.error('MySQL connection failed:', error.message)
     return null
   }
@@ -224,7 +254,7 @@ export default async function handler(req, res) {
   }
 
   if (!p) {
-    return res.status(500).json({ error: 'Database not configured' })
+    return res.status(500).json({ error: lastPoolError || 'Database not configured' })
   }
 
   try {
