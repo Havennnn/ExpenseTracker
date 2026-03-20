@@ -1,15 +1,18 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { getPlan, resetPlan, savePlan } from '../lib/db'
 import { formatCurrency } from '../lib/utils'
 
 const userId = localStorage.getItem('userId')
+const PLAN_CACHE_KEY = userId ? `plan-view:${userId}` : 'plan-view'
 
 const isLoading = ref(true)
 const isSaving = ref(false)
 const plan = ref(null)
 const targetPercent = ref(20)
-const skeletonMode = ref(localStorage.getItem('planSkeletonMode') || 'create')
+const skeletonMode = ref('create')
+const selectedPlanDates = ref([])
+const selectedPlanType = ref('default')
 
 // Date selection
 const dateRangeType = ref('default') // 'default', 'weekdays', 'custom'
@@ -18,6 +21,66 @@ const customDates = ref([])
 function formatDate(date) {
   return date.toISOString().split('T')[0]
 }
+
+function getCurrentBudgetWindow() {
+  const today = new Date()
+  const currentDate = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+  const cycleEnd = today.getDate() <= 15
+    ? new Date(today.getFullYear(), today.getMonth(), 15)
+    : new Date(today.getFullYear(), today.getMonth() + 1, 0)
+
+  return {
+    start: currentDate,
+    end: cycleEnd,
+  }
+}
+
+function generateWeekdaysUntilMonthEnd() {
+  const dates = []
+  const { start, end } = getCurrentBudgetWindow()
+
+  for (let date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
+    const day = date.getDay()
+    if (day !== 0 && day !== 6) {
+      dates.push(formatDate(new Date(date)))
+    }
+  }
+
+  return dates
+}
+
+const budgetWindow = computed(() => getCurrentBudgetWindow())
+
+const calendarDays = computed(() => {
+  const { start, end } = budgetWindow.value
+  const monthStart = new Date(start.getFullYear(), start.getMonth(), 1)
+  const days = []
+
+  for (let i = 0; i < monthStart.getDay(); i++) {
+    days.push(null)
+  }
+
+  for (let day = 1; day <= end.getDate(); day++) {
+    const date = new Date(start.getFullYear(), start.getMonth(), day)
+    const dateKey = formatDate(date)
+    const isSelectable = date >= start && date <= end
+
+    days.push({
+      key: dateKey,
+      label: day,
+      selectable: isSelectable,
+    })
+  }
+
+  return days
+})
+
+const customWindowLabel = computed(() => {
+  const { start, end } = budgetWindow.value
+  const startLabel = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  const endLabel = end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  return `${startLabel} to ${endLabel}`
+})
 
 const sliderSavingsAmount = computed(() => {
   const balance = Number(plan.value?.currentBalance || 0)
@@ -32,42 +95,128 @@ const dailyBudgetTone = computed(() => {
 
 function setSkeletonMode(mode) {
   skeletonMode.value = mode
-  localStorage.setItem('planSkeletonMode', mode)
+}
+
+function buildPlanState(result) {
+  const resolvedPlanType = result?.planType || selectedPlanType.value
+  const resolvedSelectedDates = Array.isArray(result?.selectedDates)
+    ? [...result.selectedDates]
+    : [...selectedPlanDates.value]
+
+  return {
+    ...result,
+    selectedDates: resolvedSelectedDates,
+    selectedPlanType: resolvedPlanType,
+  }
+}
+
+function syncSelectionFromPlan(result) {
+  const savedPlanType = result?.planType || 'default'
+  const savedDates = Array.isArray(result?.selectedDates) ? [...result.selectedDates] : []
+
+  dateRangeType.value = savedPlanType
+  customDates.value = savedPlanType === 'custom' ? savedDates : []
+  selectedPlanType.value = savedPlanType
+  selectedPlanDates.value = savedDates
+}
+
+function persistPlanCache() {
+  if (!userId) return
+
+  const payload = {
+    plan: plan.value,
+    targetPercent: targetPercent.value,
+    dateRangeType: dateRangeType.value,
+    customDates: [...customDates.value],
+    skeletonMode: skeletonMode.value,
+  }
+
+  sessionStorage.setItem(PLAN_CACHE_KEY, JSON.stringify(payload))
+}
+
+function hydratePlanCache() {
+  if (!userId) return false
+
+  const raw = sessionStorage.getItem(PLAN_CACHE_KEY)
+  if (!raw) return false
+
+  try {
+    const cached = JSON.parse(raw)
+    if (cached?.plan) {
+      plan.value = cached.plan
+      targetPercent.value = Number(cached.targetPercent ?? cached.plan.targetSavingsPercent ?? cached.plan.suggestedPercent ?? 20)
+      dateRangeType.value = cached.dateRangeType || cached.plan.selectedPlanType || 'default'
+      customDates.value = Array.isArray(cached.customDates) ? cached.customDates : []
+      skeletonMode.value = cached.skeletonMode || (cached.plan.planExists ? 'plan' : 'create')
+      selectedPlanType.value = cached.plan.selectedPlanType || 'default'
+      selectedPlanDates.value = Array.isArray(cached.plan.selectedDates) ? cached.plan.selectedDates : []
+      isLoading.value = false
+      return true
+    }
+  } catch (error) {
+    sessionStorage.removeItem(PLAN_CACHE_KEY)
+  }
+
+  return false
+}
+
+function clearPlanCache() {
+  if (!userId) return
+  sessionStorage.removeItem(PLAN_CACHE_KEY)
+}
+
+function getCurrentSelectionDates() {
+  if (dateRangeType.value === 'weekdays') {
+    return generateWeekdaysUntilMonthEnd()
+  }
+
+  if (dateRangeType.value === 'custom') {
+    return [...customDates.value].sort()
+  }
+
+  return []
+}
+
+function syncPlanSelection() {
+  selectedPlanType.value = dateRangeType.value
+  selectedPlanDates.value = getCurrentSelectionDates()
+}
+
+function formatPlanDateList(dates) {
+  return dates.map((date) => {
+    const value = new Date(date)
+    return value.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  })
 }
 
 async function loadPlan() {
-  isLoading.value = true
+  const hasCachedPlan = Boolean(plan.value)
+  setSkeletonMode(plan.value?.planExists ? 'plan' : skeletonMode.value)
+  isLoading.value = !hasCachedPlan
 
   try {
+    syncPlanSelection()
     let result
     if (dateRangeType.value === 'default') {
       result = await getPlan(userId)
     } else {
-      let startDate = null
-      let endDate = null
-
       if (dateRangeType.value === 'weekdays') {
-        // Weekdays only
-        const today = new Date()
-        startDate = formatDate(today)
-        
-        // Calculate end date as next Friday if today is Monday-Thursday, or this Friday if today is Friday-Monday
-        let daysUntilFriday = (5 - today.getDay() + 7) % 7
-        if (daysUntilFriday === 0) daysUntilFriday = 7 // If today is Friday, set to next Friday
-        endDate = formatDate(new Date(today.getTime() + daysUntilFriday * 24 * 60 * 60 * 1000))
-        result = await getPlan(userId, startDate, endDate)
+        result = await getPlan(userId, null, null, generateWeekdaysUntilMonthEnd())
       } else if (dateRangeType.value === 'custom') {
-        // Custom dates
         result = await getPlan(userId, null, null, customDates.value)
       }
     }
 
-    plan.value = result
+    syncSelectionFromPlan(result)
+    plan.value = buildPlanState(result)
     targetPercent.value = Number(result.targetSavingsPercent ?? result.suggestedPercent ?? 20)
     setSkeletonMode(result.planExists ? 'plan' : 'create')
+    persistPlanCache()
   } catch (e) {
     console.error('Error loading budget plan:', e)
-    plan.value = null
+    if (!hasCachedPlan) {
+      plan.value = null
+    }
   } finally {
     isLoading.value = false
   }
@@ -79,24 +228,12 @@ async function handleGenerate() {
 
   try {
     if (dateRangeType.value === 'default') {
-      await savePlan(userId, Number(targetPercent.value))
+      await savePlan(userId, Number(targetPercent.value), null, null, null, 'default')
     } else {
-      let startDate = null
-      let endDate = null
-
       if (dateRangeType.value === 'weekdays') {
-        // Weekdays only
-        const today = new Date()
-        startDate = formatDate(today)
-        
-        // Calculate end date as next Friday if today is Monday-Thursday, or this Friday if today is Friday-Monday
-        let daysUntilFriday = (5 - today.getDay() + 7) % 7
-        if (daysUntilFriday === 0) daysUntilFriday = 7 // If today is Friday, set to next Friday
-        endDate = formatDate(new Date(today.getTime() + daysUntilFriday * 24 * 60 * 60 * 1000))
-        await savePlan(userId, Number(targetPercent.value), startDate, endDate)
+        await savePlan(userId, Number(targetPercent.value), null, null, generateWeekdaysUntilMonthEnd(), 'weekdays')
       } else if (dateRangeType.value === 'custom') {
-        // Custom dates
-        await savePlan(userId, Number(targetPercent.value), null, null, customDates.value)
+        await savePlan(userId, Number(targetPercent.value), null, null, customDates.value, 'custom')
       }
     }
 
@@ -115,6 +252,11 @@ async function handleReset() {
 
   try {
     setSkeletonMode('create')
+    dateRangeType.value = 'default'
+    customDates.value = []
+    selectedPlanDates.value = []
+    selectedPlanType.value = 'default'
+    clearPlanCache()
     await resetPlan(userId)
     await loadPlan()
   } catch (e) {
@@ -122,32 +264,6 @@ async function handleReset() {
     alert(e.message || 'Failed to reset plan')
   } finally {
     isSaving.value = false
-  }
-}
-
-function generateNextDays(days) {
-  const dates = []
-  const today = new Date()
-  for (let i = 0; i < days; i++) {
-    const date = new Date(today)
-    date.setDate(today.getDate() + i)
-    dates.push(formatDate(date))
-  }
-  return dates
-}
-
-function formatDisplayDate(dateStr) {
-  const date = new Date(dateStr)
-  const today = new Date()
-  const tomorrow = new Date(today)
-  tomorrow.setDate(today.getDate() + 1)
-  
-  if (date.toDateString() === today.toDateString()) {
-    return 'Today'
-  } else if (date.toDateString() === tomorrow.toDateString()) {
-    return 'Tomorrow'
-  } else {
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
   }
 }
 
@@ -161,7 +277,33 @@ function toggleDate(date) {
   }
 }
 
-onMounted(loadPlan)
+watch(dateRangeType, (nextType) => {
+  if (nextType !== 'custom') {
+    customDates.value = []
+    return
+  }
+
+  const { start, end } = budgetWindow.value
+  customDates.value = customDates.value.filter((date) => {
+    const value = new Date(date)
+    return value >= start && value <= end
+  })
+})
+
+watch(
+  [plan, targetPercent, dateRangeType, customDates],
+  () => {
+    if (plan.value) {
+      persistPlanCache()
+    }
+  },
+  { deep: true }
+)
+
+onMounted(() => {
+  hydratePlanCache()
+  loadPlan()
+})
 </script>
 
 <template>
@@ -277,39 +419,75 @@ onMounted(loadPlan)
             </div>
 
             <div class="space-y-3">
-              <label class="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900 p-3 cursor-pointer hover:bg-zinc-850">
+              <label
+                class="flex items-center gap-3 rounded-xl border p-3 cursor-pointer transition-colors"
+                :class="dateRangeType === 'default' ? 'border-zinc-100 bg-zinc-800' : 'border-zinc-800 bg-zinc-900 hover:bg-zinc-850'"
+              >
                 <input
                   v-model="dateRangeType"
                   type="radio"
                   value="default"
-                  class="h-4 w-4 cursor-pointer accent-zinc-100"
+                  class="sr-only"
                 />
+                <span
+                  class="flex h-5 w-5 items-center justify-center rounded-full border"
+                  :class="dateRangeType === 'default' ? 'border-zinc-100 bg-zinc-100' : 'border-zinc-500 bg-zinc-950'"
+                >
+                  <span
+                    class="h-2.5 w-2.5 rounded-full"
+                    :class="dateRangeType === 'default' ? 'bg-zinc-900' : 'bg-transparent'"
+                  ></span>
+                </span>
                 <div class="flex-1">
                   <p class="text-sm font-medium text-zinc-100">Full Month</p>
                   <p class="text-xs text-zinc-500">Applies to the entire current month</p>
                 </div>
               </label>
 
-              <label class="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900 p-3 cursor-pointer hover:bg-zinc-850">
+              <label
+                class="flex items-center gap-3 rounded-xl border p-3 cursor-pointer transition-colors"
+                :class="dateRangeType === 'weekdays' ? 'border-zinc-100 bg-zinc-800' : 'border-zinc-800 bg-zinc-900 hover:bg-zinc-850'"
+              >
                 <input
                   v-model="dateRangeType"
                   type="radio"
                   value="weekdays"
-                  class="h-4 w-4 cursor-pointer accent-zinc-100"
+                  class="sr-only"
                 />
+                <span
+                  class="flex h-5 w-5 items-center justify-center rounded-full border"
+                  :class="dateRangeType === 'weekdays' ? 'border-zinc-100 bg-zinc-100' : 'border-zinc-500 bg-zinc-950'"
+                >
+                  <span
+                    class="h-2.5 w-2.5 rounded-full"
+                    :class="dateRangeType === 'weekdays' ? 'bg-zinc-900' : 'bg-transparent'"
+                  ></span>
+                </span>
                 <div class="flex-1">
                   <p class="text-sm font-medium text-zinc-100">Weekdays Only</p>
                   <p class="text-xs text-zinc-500">Monday to Friday (excludes weekends)</p>
                 </div>
               </label>
 
-              <label class="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900 p-3 cursor-pointer hover:bg-zinc-850">
+              <label
+                class="flex items-center gap-3 rounded-xl border p-3 cursor-pointer transition-colors"
+                :class="dateRangeType === 'custom' ? 'border-zinc-100 bg-zinc-800' : 'border-zinc-800 bg-zinc-900 hover:bg-zinc-850'"
+              >
                 <input
                   v-model="dateRangeType"
                   type="radio"
                   value="custom"
-                  class="h-4 w-4 cursor-pointer accent-zinc-100"
+                  class="sr-only"
                 />
+                <span
+                  class="flex h-5 w-5 items-center justify-center rounded-full border"
+                  :class="dateRangeType === 'custom' ? 'border-zinc-100 bg-zinc-100' : 'border-zinc-500 bg-zinc-950'"
+                >
+                  <span
+                    class="h-2.5 w-2.5 rounded-full"
+                    :class="dateRangeType === 'custom' ? 'bg-zinc-900' : 'bg-transparent'"
+                  ></span>
+                </span>
                 <div class="flex-1">
                   <p class="text-sm font-medium text-zinc-100">Custom Dates</p>
                   <p class="text-xs text-zinc-500">Select specific dates for your budget</p>
@@ -320,27 +498,56 @@ onMounted(loadPlan)
             <!-- Custom Dates Input -->
             <template v-if="dateRangeType === 'custom'">
               <div class="space-y-3">
-                <p class="text-xs text-zinc-500">Select dates:</p>
-                <div class="flex flex-wrap gap-2 max-h-48 overflow-y-auto p-2 rounded-lg border border-zinc-800 bg-zinc-900">
-                  <button
-                    v-for="date in generateNextDays(30)"
-                    :key="date"
-                    @click="toggleDate(date)"
-                    :class="[
-                      'px-3 py-1 text-sm rounded-full transition-colors',
-                      customDates.value.includes(date)
-                        ? 'bg-zinc-100 text-zinc-900'
-                        : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
-                    ]"
-                  >
-                    {{ formatDisplayDate(date) }}
-                  </button>
+                <div>
+                  <p class="text-xs text-zinc-400">Select dates from {{ customWindowLabel }}</p>
+                  <p class="mt-1 text-xs text-zinc-500">Dates before today and outside the current cycle are disabled.</p>
                 </div>
-                <p v-if="customDates.value.length === 0" class="text-xs text-zinc-500">
+                <div class="rounded-2xl border border-zinc-800 bg-zinc-900 p-3">
+                  <div class="mb-3 flex items-center justify-between">
+                    <p class="text-sm font-medium text-zinc-100">
+                      {{ budgetWindow.start.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) }}
+                    </p>
+                    <p class="text-xs text-zinc-500">Current cycle only</p>
+                  </div>
+                  <div class="mb-2 grid grid-cols-7 gap-1 text-center text-[11px] uppercase tracking-wide text-zinc-500">
+                    <span>Sun</span>
+                    <span>Mon</span>
+                    <span>Tue</span>
+                    <span>Wed</span>
+                    <span>Thu</span>
+                    <span>Fri</span>
+                    <span>Sat</span>
+                  </div>
+                  <div class="grid grid-cols-7 gap-1">
+                    <template v-for="(day, index) in calendarDays" :key="day?.key || `empty-${index}`">
+                      <div
+                        v-if="!day"
+                        class="h-10 rounded-lg"
+                      ></div>
+                      <button
+                        v-else
+                        type="button"
+                        @click="day.selectable && toggleDate(day.key)"
+                        :disabled="!day.selectable"
+                        :class="[
+                          'h-10 rounded-lg text-sm transition-colors',
+                          customDates.includes(day.key)
+                            ? 'bg-zinc-100 font-medium text-zinc-900'
+                            : day.selectable
+                              ? 'bg-zinc-800 text-zinc-200 hover:bg-zinc-700'
+                              : 'cursor-not-allowed bg-zinc-950 text-zinc-600'
+                        ]"
+                      >
+                        {{ day.label }}
+                      </button>
+                    </template>
+                  </div>
+                </div>
+                <p v-if="customDates.length === 0" class="text-xs text-zinc-500">
                   No dates selected yet
                 </p>
                 <p v-else class="text-xs text-zinc-500">
-                  {{ customDates.value.length }} date{{ customDates.value.length > 1 ? 's' : '' }} selected
+                  {{ customDates.length }} date{{ customDates.length > 1 ? 's' : '' }} selected
                 </p>
               </div>
             </template>
@@ -406,6 +613,24 @@ onMounted(loadPlan)
           <div class="rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
             <p class="text-xs text-zinc-500">{{ plan.cycle.cycleLabel }}</p>
             <p class="mt-1 text-sm text-zinc-300">{{ plan.message }}</p>
+          </div>
+
+          <div
+            v-if="plan.selectedPlanType !== 'default' && plan.selectedDates?.length"
+            class="rounded-2xl border border-zinc-800 bg-zinc-950 p-4"
+          >
+            <p class="text-xs text-zinc-500">
+              {{ plan.selectedPlanType === 'weekdays' ? 'Weekday dates in this plan' : 'Selected custom dates' }}
+            </p>
+            <div class="mt-3 flex flex-wrap gap-2">
+              <span
+                v-for="date in formatPlanDateList(plan.selectedDates)"
+                :key="date"
+                class="rounded-full border border-zinc-700 bg-zinc-900 px-3 py-1 text-xs text-zinc-200"
+              >
+                {{ date }}
+              </span>
+            </div>
           </div>
         </section>
 

@@ -128,6 +128,51 @@ async function ensureIndex(p, tableName, indexName, definition) {
   }
 }
 
+async function ensureColumn(p, tableName, columnName, definition) {
+  const [rows] = await p.query(
+    `SELECT 1
+     FROM information_schema.columns
+     WHERE table_schema = DATABASE()
+       AND table_name = ?
+       AND column_name = ?
+     LIMIT 1`,
+    [tableName, columnName]
+  )
+
+  if (rows.length === 0) {
+    await p.query(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`)
+  }
+}
+
+function normalizeDateList(value) {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return [...new Set(
+    value
+      .map((item) => String(item || '').trim())
+      .filter((item) => /^\d{4}-\d{2}-\d{2}$/.test(item))
+  )].sort()
+}
+
+function inferPlanType(customDates, startDate, endDate) {
+  if (customDates.length > 0) {
+    const weekdayOnly = customDates.every((date) => {
+      const day = new Date(date).getDay()
+      return day !== 0 && day !== 6
+    })
+
+    return weekdayOnly ? 'weekdays' : 'custom'
+  }
+
+  if (startDate && endDate) {
+    return 'custom'
+  }
+
+  return 'default'
+}
+
 async function setupDatabase() {
   const p = await getPool()
   if (!p) return false
@@ -193,11 +238,17 @@ async function setupDatabase() {
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT NOT NULL UNIQUE,
         target_savings_percent DECIMAL(5, 2) NOT NULL DEFAULT 20.00,
+        plan_type ENUM('default', 'weekdays', 'custom') NOT NULL DEFAULT 'default',
+        cycle_start DATE NULL,
+        cycle_end DATE NULL,
+        selected_dates JSON NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
       )
     `)
+
+    await ensurePlanSchema(p)
 
     await ensureIndex(p, 'categories', 'idx_categories_user_type_name', '(user_id, type, name)')
     await ensureIndex(p, 'categories', 'idx_categories_user_name', '(user_id, name)')
@@ -212,6 +263,13 @@ async function setupDatabase() {
     console.error('Setup error:', error.message)
     return false
   }
+}
+
+async function ensurePlanSchema(p) {
+  await ensureColumn(p, 'plans', 'plan_type', "ENUM('default', 'weekdays', 'custom') NOT NULL DEFAULT 'default'")
+  await ensureColumn(p, 'plans', 'cycle_start', 'DATE NULL')
+  await ensureColumn(p, 'plans', 'cycle_end', 'DATE NULL')
+  await ensureColumn(p, 'plans', 'selected_dates', 'JSON NULL')
 }
 
 async function ensureSchema(p) {
@@ -235,6 +293,10 @@ async function ensureSchema(p) {
     }
   }
 
+  if (existingTables.has('plans')) {
+    await ensurePlanSchema(p)
+  }
+
   schemaReady = true
   return true
 }
@@ -249,7 +311,7 @@ export default async function handler(req, res) {
     return res.status(200).end()
   }
 
-  const { action, userId, username, password, name, categoryId, categoryName, categoryType, categoryColor, source, amount, description, date, startDate, endDate, search, targetSavingsPercent } = req.body
+  const { action, userId, username, password, name, categoryId, categoryName, categoryType, categoryColor, source, amount, description, date, startDate, endDate, search, targetSavingsPercent, planType } = req.body
 
   const p = await getPool()
 
@@ -636,18 +698,34 @@ export default async function handler(req, res) {
     // ============ PLAN ============
     if (action === 'savePlan') {
       const normalizedPercent = Number(targetSavingsPercent)
+      const normalizedDates = normalizeDateList(req.body.customDates)
+      const requestedPlanType = ['default', 'weekdays', 'custom'].includes(planType) ? planType : null
+      const normalizedPlanType = requestedPlanType || inferPlanType(normalizedDates, startDate, endDate)
+      const normalizedCycleStart = normalizedDates[0] || startDate || null
+      const normalizedCycleEnd = normalizedDates[normalizedDates.length - 1] || endDate || null
 
       if (!userId || !Number.isFinite(normalizedPercent) || normalizedPercent < 0 || normalizedPercent > 100) {
         return res.status(400).json({ error: 'Invalid plan data' })
       }
 
       await p.query(
-        `INSERT INTO plans (user_id, target_savings_percent)
-         VALUES (?, ?)
+        `INSERT INTO plans (user_id, target_savings_percent, plan_type, cycle_start, cycle_end, selected_dates)
+         VALUES (?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
            target_savings_percent = VALUES(target_savings_percent),
+           plan_type = VALUES(plan_type),
+           cycle_start = VALUES(cycle_start),
+           cycle_end = VALUES(cycle_end),
+           selected_dates = VALUES(selected_dates),
            updated_at = CURRENT_TIMESTAMP`,
-        [userId, normalizedPercent]
+        [
+          userId,
+          normalizedPercent,
+          normalizedPlanType,
+          normalizedCycleStart,
+          normalizedCycleEnd,
+          normalizedDates.length > 0 ? JSON.stringify(normalizedDates) : null
+        ]
       )
 
       return res.status(200).json({ success: true })
@@ -659,21 +737,49 @@ export default async function handler(req, res) {
     }
 
       if (action === 'getPlan') {
-        const [planRows] = await p.query(
-          'SELECT target_savings_percent FROM plans WHERE user_id = ? LIMIT 1',
-          [userId]
-        )
+        const [[planRows], [balanceExpenses], [balanceIncome]] = await Promise.all([
+          p.query(
+            'SELECT target_savings_percent, plan_type, cycle_start, cycle_end, selected_dates FROM plans WHERE user_id = ? LIMIT 1',
+            [userId]
+          ),
+          p.query(
+            'SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE user_id = ?',
+            [userId]
+          ),
+          p.query(
+            'SELECT COALESCE(SUM(amount), 0) AS total FROM incomes WHERE user_id = ?',
+            [userId]
+          )
+        ])
 
-        const cycle = getCycleRange(new Date(), startDate, endDate, req.body.customDates)
+        const storedPlan = planRows[0] || null
+        let selectedDates = normalizeDateList(req.body.customDates)
+
+        if (selectedDates.length === 0 && storedPlan?.selected_dates) {
+          try {
+            selectedDates = normalizeDateList(
+              typeof storedPlan.selected_dates === 'string'
+                ? JSON.parse(storedPlan.selected_dates)
+                : storedPlan.selected_dates
+            )
+          } catch (error) {
+            selectedDates = []
+          }
+        }
+
+        const effectiveStartDate = startDate || storedPlan?.cycle_start || null
+        const effectiveEndDate = endDate || storedPlan?.cycle_end || null
+        const effectivePlanType = storedPlan?.plan_type || inferPlanType(selectedDates, effectiveStartDate, effectiveEndDate)
+        const cycle = getCycleRange(new Date(), effectiveStartDate, effectiveEndDate, selectedDates)
 
         // Handle cycle expenses based on custom dates or range
         let cycleExpenseRows
-        if (req.body.customDates && Array.isArray(req.body.customDates) && req.body.customDates.length > 0) {
+        if (selectedDates.length > 0) {
           // If custom dates are provided, use them in WHERE date IN (...)
-          const placeholders = req.body.customDates.map(() => '?').join(',')
+          const placeholders = selectedDates.map(() => '?').join(',')
           const [result] = await p.query(
             `SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE user_id = ? AND date IN (${placeholders})`,
-            [userId, ...req.body.customDates]
+            [userId, ...selectedDates]
           )
           cycleExpenseRows = result
         } else {
@@ -685,17 +791,6 @@ export default async function handler(req, res) {
           cycleExpenseRows = result
         }
 
-        const [[balanceExpenses], [balanceIncome]] = await Promise.all([
-          p.query(
-            'SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE user_id = ?',
-            [userId]
-          ),
-          p.query(
-            'SELECT COALESCE(SUM(amount), 0) AS total FROM incomes WHERE user_id = ?',
-            [userId]
-          )
-        ])
-
       const totalExpenses = Number(balanceExpenses[0]?.total || 0)
       const totalIncome = Number(balanceIncome[0]?.total || 0)
       const currentBalance = totalIncome - totalExpenses
@@ -705,7 +800,9 @@ export default async function handler(req, res) {
           planExists: false,
           cycle,
           currentBalance,
-          suggestedPercent: 20
+          suggestedPercent: 20,
+          planType: effectivePlanType,
+          selectedDates
         })
       }
 
@@ -734,6 +831,8 @@ export default async function handler(req, res) {
         planExists: true,
         cycle,
         currentBalance,
+        planType: effectivePlanType,
+        selectedDates,
         targetSavingsPercent,
         targetSavingsAmount,
         spendableAmount,

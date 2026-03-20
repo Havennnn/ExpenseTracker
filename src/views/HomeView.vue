@@ -7,6 +7,9 @@ import { getDashboard } from '../lib/db'
 import { formatCurrency } from '../lib/utils'
 
 const router = useRouter()
+const userId = localStorage.getItem('userId')
+const username = localStorage.getItem('username') || 'User'
+const DASHBOARD_CACHE_KEY = userId ? `dashboard:${userId}` : 'dashboard'
 
 const ExpensesView = defineAsyncComponent(() => import('./ExpensesView.vue'))
 const IncomeView = defineAsyncComponent(() => import('./IncomeView.vue'))
@@ -18,9 +21,6 @@ const activeTab = ref('home')
 const dashboard = ref(null)
 const isLoading = ref(true)
 const refreshTrigger = ref(0)
-
-const userId = localStorage.getItem('userId')
-const username = localStorage.getItem('username') || 'User'
 
 const isPositive = computed(() => {
   return dashboard.value?.balance >= 0
@@ -71,11 +71,12 @@ const activeTabComponent = computed(() => {
 })
 
 async function loadDashboard() {
-  isLoading.value = true
+  isLoading.value = !dashboard.value
 
   try {
     const result = await getDashboard(userId)
     dashboard.value = result
+    sessionStorage.setItem(DASHBOARD_CACHE_KEY, JSON.stringify(result))
   } catch (e) {
     console.error('Error:', e)
   } finally {
@@ -108,7 +109,19 @@ function formatMonth(dateStr) {
   return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
 }
 
-onMounted(loadDashboard)
+onMounted(() => {
+  const cached = sessionStorage.getItem(DASHBOARD_CACHE_KEY)
+  if (cached) {
+    try {
+      dashboard.value = JSON.parse(cached)
+      isLoading.value = false
+    } catch (error) {
+      sessionStorage.removeItem(DASHBOARD_CACHE_KEY)
+    }
+  }
+
+  loadDashboard()
+})
 </script>
 
 <template>
@@ -199,12 +212,15 @@ onMounted(loadDashboard)
       </main>
     </div>
 
-    <component
-      :is="activeTabComponent"
-      v-if="activeTabComponent"
-      :refresh-trigger="refreshTrigger"
-      @refresh="handleRefresh"
-    />
+    <KeepAlive>
+      <component
+        :is="activeTabComponent"
+        v-if="activeTabComponent"
+        :key="activeTab"
+        :refresh-trigger="refreshTrigger"
+        @refresh="handleRefresh"
+      />
+    </KeepAlive>
 
     <BottomNav :active-tab="activeTab" @change="handleTabChange" />
   </div>

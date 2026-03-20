@@ -31,6 +31,7 @@ const limit = 20
 const offset = ref(0)
 
 const userId = localStorage.getItem('userId')
+const CACHE_KEY = userId ? `categories-view:${userId}` : 'categories-view'
 
 const filteredCategories = computed(() => {
   return categories.value.filter(c => c.type === activeType.value)
@@ -38,7 +39,48 @@ const filteredCategories = computed(() => {
 
 let searchTimeout = null
 
+function persistCache() {
+  if (!userId) return
+
+  sessionStorage.setItem(CACHE_KEY, JSON.stringify({
+    categories: categories.value,
+    searchQuery: searchQuery.value,
+    activeType: activeType.value,
+    total: total.value,
+    hasMore: hasMore.value,
+    offset: offset.value,
+    isBulkMode: isBulkMode.value,
+    selectedItems: selectedItems.value,
+  }))
+}
+
+function hydrateCache() {
+  if (!userId) return false
+
+  const raw = sessionStorage.getItem(CACHE_KEY)
+  if (!raw) return false
+
+  try {
+    const cached = JSON.parse(raw)
+    categories.value = Array.isArray(cached.categories) ? cached.categories : []
+    searchQuery.value = cached.searchQuery || ''
+    activeType.value = cached.activeType || 'expense'
+    total.value = Number(cached.total || 0)
+    hasMore.value = Boolean(cached.hasMore)
+    offset.value = Number(cached.offset || 0)
+    isBulkMode.value = Boolean(cached.isBulkMode)
+    selectedItems.value = Array.isArray(cached.selectedItems) ? cached.selectedItems : []
+    isLoading.value = false
+    return true
+  } catch (error) {
+    sessionStorage.removeItem(CACHE_KEY)
+    return false
+  }
+}
+
 async function loadCategories(reset = false) {
+  const hasCachedData = categories.value.length > 0
+
   if (reset) {
     offset.value = 0
     categories.value = []
@@ -47,7 +89,7 @@ async function loadCategories(reset = false) {
   }
   
   if (offset.value === 0) {
-    isLoading.value = true
+    isLoading.value = reset || !hasCachedData
   } else {
     isLoadingMore.value = true
   }
@@ -61,6 +103,7 @@ async function loadCategories(reset = false) {
     }
     total.value = result.total || 0
     hasMore.value = result.hasMore || false
+    persistCache()
   } catch (e) {
     console.error('Error:', e)
   } finally {
@@ -85,6 +128,7 @@ function handleSearch(query) {
 
 function handleTypeChange(type) {
   activeType.value = type
+  persistCache()
 }
 
 async function saveCategory(formData) {
@@ -102,6 +146,7 @@ async function saveCategory(formData) {
     })
     
     total.value++
+    persistCache()
     emit('refresh')
   } catch (e) {
     console.error('Error:', e)
@@ -126,6 +171,7 @@ async function deleteItem() {
     await deleteCategory(userId, deleteItemId.value)
     categories.value = categories.value.filter(c => c.id !== deleteItemId.value)
     total.value--
+    persistCache()
     emit('refresh')
   } catch (e) {
     console.error('Error:', e)
@@ -158,6 +204,7 @@ async function deleteSelected() {
     }
     categories.value = categories.value.filter(c => !selectedItems.value.includes(c.id))
     total.value -= selectedItems.value.length
+    persistCache()
     emit('refresh')
   } catch (e) {
     console.error('Error:', e)
@@ -178,9 +225,12 @@ function handleScroll() {
 }
 
 onMounted(() => {
+  hydrateCache()
   loadCategories()
   window.addEventListener('scroll', handleScroll)
 })
+
+watch([searchQuery, activeType, isBulkMode, selectedItems], persistCache, { deep: true })
 
 watch(() => props.refreshTrigger, () => {
   loadCategories(true)

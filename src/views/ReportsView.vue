@@ -5,6 +5,7 @@ import { getExpenses, getIncomes } from '../lib/db'
 import { formatCurrency } from '../lib/utils'
 
 const userId = localStorage.getItem('userId')
+const REPORT_CACHE_PREFIX = userId ? `reports:${userId}` : 'reports'
 const activeSection = ref('monthly')
 const isMonthlyLoading = ref(true)
 const isForecastLoading = ref(true)
@@ -87,8 +88,41 @@ function buildBreakdown(items) {
   return [...map.values()].sort((a, b) => b.total - a.total)
 }
 
+function getMonthlyCacheKey(monthValue) {
+  return `${REPORT_CACHE_PREFIX}:monthly:${monthValue}`
+}
+
+function getForecastCacheKey() {
+  const monthValue = new Date().toISOString().slice(0, 7)
+  return `${REPORT_CACHE_PREFIX}:forecast:${monthValue}`
+}
+
+function readCache(key) {
+  const raw = sessionStorage.getItem(key)
+  if (!raw) return null
+
+  try {
+    return JSON.parse(raw)
+  } catch (error) {
+    sessionStorage.removeItem(key)
+    return null
+  }
+}
+
+function writeCache(key, payload) {
+  sessionStorage.setItem(key, JSON.stringify(payload))
+}
+
 async function loadReport() {
-  isMonthlyLoading.value = true
+  const cacheKey = getMonthlyCacheKey(reportMonth.value)
+  const cached = readCache(cacheKey)
+  if (cached) {
+    expenses.value = cached.expenses || []
+    incomes.value = cached.incomes || []
+    isMonthlyLoading.value = false
+  } else {
+    isMonthlyLoading.value = true
+  }
 
   try {
     const { start, end } = getMonthRange(reportMonth.value)
@@ -99,17 +133,31 @@ async function loadReport() {
 
     expenses.value = expenseItems
     incomes.value = incomeItems
+    writeCache(cacheKey, {
+      expenses: expenseItems,
+      incomes: incomeItems
+    })
   } catch (e) {
     console.error('Error loading report:', e)
-    expenses.value = []
-    incomes.value = []
+    if (!cached) {
+      expenses.value = []
+      incomes.value = []
+    }
   } finally {
     isMonthlyLoading.value = false
   }
 }
 
 async function loadForecast() {
-  isForecastLoading.value = true
+  const cacheKey = getForecastCacheKey()
+  const cached = readCache(cacheKey)
+  if (cached) {
+    forecastExpenses.value = cached.expenses || []
+    forecastIncomes.value = cached.incomes || []
+    isForecastLoading.value = false
+  } else {
+    isForecastLoading.value = true
+  }
 
   try {
     const currentMonth = new Date().toISOString().slice(0, 7)
@@ -121,10 +169,16 @@ async function loadForecast() {
 
     forecastExpenses.value = expenseItems
     forecastIncomes.value = incomeItems
+    writeCache(cacheKey, {
+      expenses: expenseItems,
+      incomes: incomeItems
+    })
   } catch (e) {
     console.error('Error loading forecast:', e)
-    forecastExpenses.value = []
-    forecastIncomes.value = []
+    if (!cached) {
+      forecastExpenses.value = []
+      forecastIncomes.value = []
+    }
   } finally {
     isForecastLoading.value = false
   }

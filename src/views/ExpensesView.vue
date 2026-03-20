@@ -37,10 +37,52 @@ const filters = ref({
 })
 
 const userId = localStorage.getItem('userId')
+const CACHE_KEY = userId ? `expenses-view:${userId}` : 'expenses-view'
 
 let searchTimeout = null
 
+function persistCache() {
+  if (!userId) return
+
+  sessionStorage.setItem(CACHE_KEY, JSON.stringify({
+    expenses: expenses.value,
+    categories: categories.value,
+    filters: filters.value,
+    total: total.value,
+    hasMore: hasMore.value,
+    offset: offset.value,
+    isBulkMode: isBulkMode.value,
+    selectedItems: selectedItems.value,
+  }))
+}
+
+function hydrateCache() {
+  if (!userId) return false
+
+  const raw = sessionStorage.getItem(CACHE_KEY)
+  if (!raw) return false
+
+  try {
+    const cached = JSON.parse(raw)
+    expenses.value = Array.isArray(cached.expenses) ? cached.expenses : []
+    categories.value = Array.isArray(cached.categories) ? cached.categories : []
+    filters.value = { ...filters.value, ...(cached.filters || {}) }
+    total.value = Number(cached.total || 0)
+    hasMore.value = Boolean(cached.hasMore)
+    offset.value = Number(cached.offset || 0)
+    isBulkMode.value = Boolean(cached.isBulkMode)
+    selectedItems.value = Array.isArray(cached.selectedItems) ? cached.selectedItems : []
+    isLoading.value = false
+    return true
+  } catch (error) {
+    sessionStorage.removeItem(CACHE_KEY)
+    return false
+  }
+}
+
 async function loadData(reset = false) {
+  const hasCachedData = expenses.value.length > 0 || categories.value.length > 0
+
   if (reset) {
     offset.value = 0
     expenses.value = []
@@ -49,7 +91,7 @@ async function loadData(reset = false) {
   }
 
   if (offset.value === 0) {
-    isLoading.value = true
+    isLoading.value = reset || !hasCachedData
   } else {
     isLoadingMore.value = true
   }
@@ -85,6 +127,8 @@ async function loadData(reset = false) {
     if (catResult) {
       categories.value = (catResult.categories || []).filter(c => c.type === 'expense')
     }
+
+    persistCache()
   } catch (e) {
     console.error('Error loading:', e)
   } finally {
@@ -128,6 +172,7 @@ async function saveExpense(formData) {
       date: formData.date
     })
     
+    persistCache()
     emit('refresh')
   } catch (e) {
     console.error('Error:', e)
@@ -151,6 +196,7 @@ async function deleteItem() {
   try {
     await deleteExpense(userId, deleteItemId.value)
     expenses.value = expenses.value.filter(e => e.id !== deleteItemId.value)
+    persistCache()
     emit('refresh')
   } catch (e) {
     console.error('Error:', e)
@@ -182,6 +228,7 @@ async function deleteSelected() {
       await deleteExpense(userId, id)
     }
     expenses.value = expenses.value.filter(e => !selectedItems.value.includes(e.id))
+    persistCache()
     emit('refresh')
   } catch (e) {
     console.error('Error:', e)
@@ -191,7 +238,12 @@ async function deleteSelected() {
   isBulkMode.value = false
 }
 
-onMounted(loadData)
+watch([filters, isBulkMode, selectedItems], persistCache, { deep: true })
+
+onMounted(() => {
+  hydrateCache()
+  loadData()
+})
 watch(() => props.refreshTrigger, () => {
   loadData(true)
 })
