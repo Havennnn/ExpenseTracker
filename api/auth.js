@@ -274,34 +274,93 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Database setup failed' })
     }
 
-    function getCycleRange(now = new Date()) {
-      const year = now.getFullYear()
-      const month = now.getMonth()
-      const day = now.getDate()
-      const cycleStartDay = day <= 15 ? 1 : 16
-      const cycleEndDay = day <= 15 ? 15 : new Date(year, month + 1, 0).getDate()
+      function getCycleRange(now = new Date(), startDate = null, endDate = null, customDates = null) {
+        // If custom dates are provided, use them
+        if (customDates && Array.isArray(customDates) && customDates.length > 0) {
+          const sortedDates = [...customDates].sort()
+          const cycleStart = new Date(sortedDates[0])
+          const cycleEnd = new Date(sortedDates[sortedDates.length - 1])
+          const nowDate = new Date(now.toISOString().split('T')[0]) // Normalize to date without time
 
-      const cycleStart = new Date(year, month, cycleStartDay)
-      const cycleEnd = new Date(year, month, cycleEndDay)
-      const fullCycleDays = cycleEndDay - cycleStartDay + 1
-      const daysElapsed = day - cycleStartDay + 1
-      const daysRemaining = Math.max(cycleEndDay - day, 0)
-      const daysLeft = Math.max(cycleEndDay - day + 1, 1)
+          // Calculate days remaining from today to the last selected date
+          const daysRemaining = Math.ceil((cycleEnd - nowDate) / (1000 * 60 * 60 * 24))
+          const daysLeft = Math.max(daysRemaining + 1, 1)
 
-      return {
-        cycleLabel: `${cycleStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${cycleEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`,
-        cycleName: cycleStartDay === 1 ? 'Cycle 1' : 'Cycle 2',
-        budgetLabel: cycleStartDay === 1 ? `Budget until ${cycleEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : `Budget until ${cycleEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`,
-        cycleStart: cycleStart.toISOString().split('T')[0],
-        cycleEnd: cycleEnd.toISOString().split('T')[0],
-        cycleStartDay,
-        cycleEndDay,
-        fullCycleDays,
-        daysElapsed,
-        daysRemaining,
-        daysLeft
+          // Calculate number of selected days
+          const fullCycleDays = customDates.length
+
+          // Calculate number of selected days that have already passed
+          const daysElapsed = customDates.filter(date => new Date(date) <= nowDate).length
+          const daysRemainingInCycle = fullCycleDays - daysElapsed
+
+          return {
+            cycleLabel: `${cycleStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${cycleEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`,
+            cycleName: 'Custom Dates',
+            budgetLabel: `Budget for selected dates`,
+            cycleStart: cycleStart.toISOString().split('T')[0],
+            cycleEnd: cycleEnd.toISOString().split('T')[0],
+            cycleStartDay: cycleStart.getDate(),
+            cycleEndDay: cycleEnd.getDate(),
+            fullCycleDays,
+            daysElapsed,
+            daysRemaining: daysRemainingInCycle,
+            daysLeft: daysRemainingInCycle // Days left in selected dates
+          }
+        }
+        // If custom range is provided, use it
+        else if (startDate && endDate) {
+          const cycleStart = new Date(startDate)
+          const cycleEnd = new Date(endDate)
+          const nowDate = new Date(now.toISOString().split('T')[0]) // Normalize to date without time
+          
+          const fullCycleDays = Math.ceil((cycleEnd - cycleStart) / (1000 * 60 * 60 * 24)) + 1
+          const daysElapsed = Math.ceil((nowDate - cycleStart) / (1000 * 60 * 60 * 24)) + 1
+          const daysRemaining = Math.ceil((cycleEnd - nowDate) / (1000 * 60 * 60 * 24))
+          const daysLeft = Math.max(daysRemaining + 1, 1)
+
+          return {
+            cycleLabel: `${cycleStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${cycleEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`,
+            cycleName: 'Custom Range',
+            budgetLabel: `Budget until ${cycleEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`,
+            cycleStart: cycleStart.toISOString().split('T')[0],
+            cycleEnd: cycleEnd.toISOString().split('T')[0],
+            cycleStartDay: cycleStart.getDate(),
+            cycleEndDay: cycleEnd.getDate(),
+            fullCycleDays,
+            daysElapsed: Math.min(daysElapsed, fullCycleDays), // Ensure we don't exceed full cycle
+            daysRemaining: Math.max(daysRemaining, 0), // Ensure no negative days
+            daysLeft
+          }
+        }
+
+        // Default bi-monthly cycle if no custom range or dates are provided
+        const year = now.getFullYear()
+        const month = now.getMonth()
+        const day = now.getDate()
+        const cycleStartDay = day <= 15 ? 1 : 16
+        const cycleEndDay = day <= 15 ? 15 : new Date(year, month + 1, 0).getDate()
+
+        const cycleStart = new Date(year, month, cycleStartDay)
+        const cycleEnd = new Date(year, month, cycleEndDay)
+        const fullCycleDays = cycleEndDay - cycleStartDay + 1
+        const daysElapsed = day - cycleStartDay + 1
+        const daysRemaining = Math.max(cycleEndDay - day, 0)
+        const daysLeft = Math.max(cycleEndDay - day + 1, 1)
+
+        return {
+          cycleLabel: `${cycleStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${cycleEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`,
+          cycleName: cycleStartDay === 1 ? 'Cycle 1' : 'Cycle 2',
+          budgetLabel: cycleStartDay === 1 ? `Budget until ${cycleEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : `Budget until ${cycleEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`,
+          cycleStart: cycleStart.toISOString().split('T')[0],
+          cycleEnd: cycleEnd.toISOString().split('T')[0],
+          cycleStartDay,
+          cycleEndDay,
+          fullCycleDays,
+          daysElapsed,
+          daysRemaining,
+          daysLeft
+        }
       }
-    }
 
     // ============ AUTH ============
     if (action === 'register') {
@@ -599,28 +658,43 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true })
     }
 
-    if (action === 'getPlan') {
-      const [planRows] = await p.query(
-        'SELECT target_savings_percent FROM plans WHERE user_id = ? LIMIT 1',
-        [userId]
-      )
-
-      const cycle = getCycleRange()
-
-      const [[balanceExpenses], [balanceIncome], [cycleExpenseRows]] = await Promise.all([
-        p.query(
-          'SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE user_id = ?',
+      if (action === 'getPlan') {
+        const [planRows] = await p.query(
+          'SELECT target_savings_percent FROM plans WHERE user_id = ? LIMIT 1',
           [userId]
-        ),
-        p.query(
-          'SELECT COALESCE(SUM(amount), 0) AS total FROM incomes WHERE user_id = ?',
-          [userId]
-        ),
-        p.query(
-          'SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE user_id = ? AND date BETWEEN ? AND ?',
-          [userId, cycle.cycleStart, cycle.cycleEnd]
         )
-      ])
+
+        const cycle = getCycleRange(new Date(), startDate, endDate, req.body.customDates)
+
+        // Handle cycle expenses based on custom dates or range
+        let cycleExpenseRows
+        if (req.body.customDates && Array.isArray(req.body.customDates) && req.body.customDates.length > 0) {
+          // If custom dates are provided, use them in WHERE date IN (...)
+          const placeholders = req.body.customDates.map(() => '?').join(',')
+          const [result] = await p.query(
+            `SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE user_id = ? AND date IN (${placeholders})`,
+            [userId, ...req.body.customDates]
+          )
+          cycleExpenseRows = result
+        } else {
+          // Otherwise, use the range
+          const [result] = await p.query(
+            'SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE user_id = ? AND date BETWEEN ? AND ?',
+            [userId, cycle.cycleStart, cycle.cycleEnd]
+          )
+          cycleExpenseRows = result
+        }
+
+        const [[balanceExpenses], [balanceIncome]] = await Promise.all([
+          p.query(
+            'SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE user_id = ?',
+            [userId]
+          ),
+          p.query(
+            'SELECT COALESCE(SUM(amount), 0) AS total FROM incomes WHERE user_id = ?',
+            [userId]
+          )
+        ])
 
       const totalExpenses = Number(balanceExpenses[0]?.total || 0)
       const totalIncome = Number(balanceIncome[0]?.total || 0)
@@ -650,11 +724,11 @@ export default async function handler(req, res) {
           ? 'on_track'
           : 'no_budget'
 
-      const message = currentBalance <= 0
+       const message = currentBalance <= 0
         ? 'Your current balance is zero or below, so this plan is very tight.'
         : remainingBudget < 0
           ? `You are over this plan by ${Math.abs(remainingBudget).toFixed(2)} for the current window.`
-          : `Spend up to ${dailyBudget.toFixed(2)} per day until ${cycle.cycleEndDay}.`
+          : `Spend up to ${dailyBudget.toFixed(2)} per day until ${cycle.cycleEnd}`
 
       return res.status(200).json({
         planExists: true,

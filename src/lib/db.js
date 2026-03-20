@@ -70,12 +70,12 @@ export async function deleteIncome(userId, incomeId) {
 }
 
 // Plan
-export async function getPlan(userId) {
-  return fetchAPI('auth', { action: 'getPlan', userId })
+export async function getPlan(userId, startDate = null, endDate = null, customDates = null) {
+  return fetchAPI('auth', { action: 'getPlan', userId, startDate, endDate, customDates })
 }
 
-export async function savePlan(userId, targetSavingsPercent) {
-  return fetchAPI('auth', { action: 'savePlan', userId, targetSavingsPercent })
+export async function savePlan(userId, targetSavingsPercent, startDate = null, endDate = null, customDates = null) {
+  return fetchAPI('auth', { action: 'savePlan', userId, targetSavingsPercent, startDate, endDate, customDates })
 }
 
 export async function resetPlan(userId) {

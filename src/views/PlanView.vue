@@ -11,6 +11,14 @@ const plan = ref(null)
 const targetPercent = ref(20)
 const skeletonMode = ref(localStorage.getItem('planSkeletonMode') || 'create')
 
+// Date selection
+const dateRangeType = ref('default') // 'default', 'weekdays', 'custom'
+const customDates = ref([])
+
+function formatDate(date) {
+  return date.toISOString().split('T')[0]
+}
+
 const sliderSavingsAmount = computed(() => {
   const balance = Number(plan.value?.currentBalance || 0)
   return balance > 0 ? balance * (Number(targetPercent.value) / 100) : 0
@@ -31,7 +39,29 @@ async function loadPlan() {
   isLoading.value = true
 
   try {
-    const result = await getPlan(userId)
+    let result
+    if (dateRangeType.value === 'default') {
+      result = await getPlan(userId)
+    } else {
+      let startDate = null
+      let endDate = null
+
+      if (dateRangeType.value === 'weekdays') {
+        // Weekdays only
+        const today = new Date()
+        startDate = formatDate(today)
+        
+        // Calculate end date as next Friday if today is Monday-Thursday, or this Friday if today is Friday-Monday
+        let daysUntilFriday = (5 - today.getDay() + 7) % 7
+        if (daysUntilFriday === 0) daysUntilFriday = 7 // If today is Friday, set to next Friday
+        endDate = formatDate(new Date(today.getTime() + daysUntilFriday * 24 * 60 * 60 * 1000))
+        result = await getPlan(userId, startDate, endDate)
+      } else if (dateRangeType.value === 'custom') {
+        // Custom dates
+        result = await getPlan(userId, null, null, customDates.value)
+      }
+    }
+
     plan.value = result
     targetPercent.value = Number(result.targetSavingsPercent ?? result.suggestedPercent ?? 20)
     setSkeletonMode(result.planExists ? 'plan' : 'create')
@@ -48,7 +78,28 @@ async function handleGenerate() {
   isSaving.value = true
 
   try {
-    await savePlan(userId, Number(targetPercent.value))
+    if (dateRangeType.value === 'default') {
+      await savePlan(userId, Number(targetPercent.value))
+    } else {
+      let startDate = null
+      let endDate = null
+
+      if (dateRangeType.value === 'weekdays') {
+        // Weekdays only
+        const today = new Date()
+        startDate = formatDate(today)
+        
+        // Calculate end date as next Friday if today is Monday-Thursday, or this Friday if today is Friday-Monday
+        let daysUntilFriday = (5 - today.getDay() + 7) % 7
+        if (daysUntilFriday === 0) daysUntilFriday = 7 // If today is Friday, set to next Friday
+        endDate = formatDate(new Date(today.getTime() + daysUntilFriday * 24 * 60 * 60 * 1000))
+        await savePlan(userId, Number(targetPercent.value), startDate, endDate)
+      } else if (dateRangeType.value === 'custom') {
+        // Custom dates
+        await savePlan(userId, Number(targetPercent.value), null, null, customDates.value)
+      }
+    }
+
     await loadPlan()
   } catch (e) {
     console.error('Error generating budget plan:', e)
@@ -71,6 +122,42 @@ async function handleReset() {
     alert(e.message || 'Failed to reset plan')
   } finally {
     isSaving.value = false
+  }
+}
+
+function generateNextDays(days) {
+  const dates = []
+  const today = new Date()
+  for (let i = 0; i < days; i++) {
+    const date = new Date(today)
+    date.setDate(today.getDate() + i)
+    dates.push(formatDate(date))
+  }
+  return dates
+}
+
+function formatDisplayDate(dateStr) {
+  const date = new Date(dateStr)
+  const today = new Date()
+  const tomorrow = new Date(today)
+  tomorrow.setDate(today.getDate() + 1)
+  
+  if (date.toDateString() === today.toDateString()) {
+    return 'Today'
+  } else if (date.toDateString() === tomorrow.toDateString()) {
+    return 'Tomorrow'
+  } else {
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  }
+}
+
+function toggleDate(date) {
+  const index = customDates.value.indexOf(date)
+  if (index > -1) {
+    customDates.value.splice(index, 1)
+  } else {
+    customDates.value.push(date)
+    customDates.value.sort()
   }
 }
 
@@ -101,12 +188,30 @@ onMounted(loadPlan)
             <div class="h-16 rounded-2xl bg-zinc-950"></div>
           </div>
           <div class="grid grid-cols-2 gap-3 animate-pulse">
-            <div class="h-24 rounded-2xl border border-zinc-800 bg-zinc-900"></div>
-            <div class="h-24 rounded-2xl border border-zinc-800 bg-zinc-900"></div>
-            <div class="h-24 rounded-2xl border border-zinc-800 bg-zinc-900"></div>
-            <div class="h-24 rounded-2xl border border-zinc-800 bg-zinc-900"></div>
-            <div class="h-24 rounded-2xl border border-zinc-800 bg-zinc-900"></div>
-            <div class="h-24 rounded-2xl border border-zinc-800 bg-zinc-900"></div>
+            <div class="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 space-y-2">
+              <div class="h-3 w-24 rounded-full bg-zinc-800"></div>
+              <div class="h-6 w-32 rounded-full bg-zinc-800"></div>
+            </div>
+            <div class="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 space-y-2">
+              <div class="h-3 w-24 rounded-full bg-zinc-800"></div>
+              <div class="h-6 w-32 rounded-full bg-zinc-800"></div>
+            </div>
+            <div class="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 space-y-2">
+              <div class="h-3 w-24 rounded-full bg-zinc-800"></div>
+              <div class="h-6 w-32 rounded-full bg-zinc-800"></div>
+            </div>
+            <div class="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 space-y-2">
+              <div class="h-3 w-24 rounded-full bg-zinc-800"></div>
+              <div class="h-6 w-32 rounded-full bg-zinc-800"></div>
+            </div>
+            <div class="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 space-y-2">
+              <div class="h-3 w-24 rounded-full bg-zinc-800"></div>
+              <div class="h-6 w-32 rounded-full bg-zinc-800"></div>
+            </div>
+            <div class="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 space-y-2">
+              <div class="h-3 w-24 rounded-full bg-zinc-800"></div>
+              <div class="h-6 w-32 rounded-full bg-zinc-800"></div>
+            </div>
           </div>
         </template>
 
@@ -116,6 +221,28 @@ onMounted(loadPlan)
               <div class="h-3 w-24 rounded-full bg-zinc-800"></div>
               <div class="h-9 w-40 rounded-full bg-zinc-800"></div>
             </div>
+
+            <!-- Date Range Selection Skeleton -->
+            <div class="rounded-2xl border border-zinc-800 bg-zinc-950 p-4 space-y-4">
+              <div class="space-y-2">
+                <div class="h-3 w-28 rounded-full bg-zinc-800"></div>
+                <div class="h-3 w-44 rounded-full bg-zinc-800"></div>
+              </div>
+              <div class="space-y-3">
+                <div class="h-14 rounded-xl border border-zinc-800 bg-zinc-900"></div>
+                <div class="h-14 rounded-xl border border-zinc-800 bg-zinc-900"></div>
+                <div class="h-14 rounded-xl border border-zinc-800 bg-zinc-900"></div>
+              </div>
+              <!-- Custom Dates Selection Skeleton -->
+              <div class="space-y-3">
+                <div class="h-3 w-20 rounded-full bg-zinc-800"></div>
+                <div class="flex flex-wrap gap-2 max-h-48 overflow-y-auto p-2 rounded-lg border border-zinc-800 bg-zinc-900">
+                  <div v-for="i in 10" :key="i" class="h-6 w-20 rounded-full bg-zinc-800"></div>
+                </div>
+                <div class="h-3 w-40 rounded-full bg-zinc-800"></div>
+              </div>
+            </div>
+
             <div class="rounded-2xl border border-zinc-800 bg-zinc-950 p-4 space-y-4">
               <div class="flex items-center justify-between gap-3">
                 <div class="space-y-2">
@@ -125,7 +252,10 @@ onMounted(loadPlan)
                 <div class="h-8 w-14 rounded-full bg-zinc-800"></div>
               </div>
               <div class="h-2 w-full rounded-full bg-zinc-800"></div>
-              <div class="h-16 rounded-xl bg-zinc-800"></div>
+              <div class="rounded-xl border border-zinc-800 bg-zinc-900 p-4 space-y-2">
+                <div class="h-3 w-24 rounded-full bg-zinc-800"></div>
+                <div class="h-6 w-32 rounded-full bg-zinc-800"></div>
+              </div>
             </div>
             <div class="h-11 rounded-xl bg-zinc-800"></div>
           </div>
@@ -137,6 +267,83 @@ onMounted(loadPlan)
           <div>
             <p class="text-sm text-zinc-500">Current balance</p>
             <p class="mt-1 text-3xl font-semibold text-zinc-100">{{ formatCurrency(plan.currentBalance) }}</p>
+          </div>
+
+          <!-- Date Range Selection -->
+          <div class="rounded-2xl border border-zinc-800 bg-zinc-950 p-4 space-y-4">
+            <div>
+              <p class="text-sm font-medium text-zinc-100">Budget Period</p>
+              <p class="text-xs text-zinc-500">Select when your budget plan should apply</p>
+            </div>
+
+            <div class="space-y-3">
+              <label class="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900 p-3 cursor-pointer hover:bg-zinc-850">
+                <input
+                  v-model="dateRangeType"
+                  type="radio"
+                  value="default"
+                  class="h-4 w-4 cursor-pointer accent-zinc-100"
+                />
+                <div class="flex-1">
+                  <p class="text-sm font-medium text-zinc-100">Full Month</p>
+                  <p class="text-xs text-zinc-500">Applies to the entire current month</p>
+                </div>
+              </label>
+
+              <label class="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900 p-3 cursor-pointer hover:bg-zinc-850">
+                <input
+                  v-model="dateRangeType"
+                  type="radio"
+                  value="weekdays"
+                  class="h-4 w-4 cursor-pointer accent-zinc-100"
+                />
+                <div class="flex-1">
+                  <p class="text-sm font-medium text-zinc-100">Weekdays Only</p>
+                  <p class="text-xs text-zinc-500">Monday to Friday (excludes weekends)</p>
+                </div>
+              </label>
+
+              <label class="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900 p-3 cursor-pointer hover:bg-zinc-850">
+                <input
+                  v-model="dateRangeType"
+                  type="radio"
+                  value="custom"
+                  class="h-4 w-4 cursor-pointer accent-zinc-100"
+                />
+                <div class="flex-1">
+                  <p class="text-sm font-medium text-zinc-100">Custom Dates</p>
+                  <p class="text-xs text-zinc-500">Select specific dates for your budget</p>
+                </div>
+              </label>
+            </div>
+
+            <!-- Custom Dates Input -->
+            <template v-if="dateRangeType === 'custom'">
+              <div class="space-y-3">
+                <p class="text-xs text-zinc-500">Select dates:</p>
+                <div class="flex flex-wrap gap-2 max-h-48 overflow-y-auto p-2 rounded-lg border border-zinc-800 bg-zinc-900">
+                  <button
+                    v-for="date in generateNextDays(30)"
+                    :key="date"
+                    @click="toggleDate(date)"
+                    :class="[
+                      'px-3 py-1 text-sm rounded-full transition-colors',
+                      customDates.value.includes(date)
+                        ? 'bg-zinc-100 text-zinc-900'
+                        : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+                    ]"
+                  >
+                    {{ formatDisplayDate(date) }}
+                  </button>
+                </div>
+                <p v-if="customDates.value.length === 0" class="text-xs text-zinc-500">
+                  No dates selected yet
+                </p>
+                <p v-else class="text-xs text-zinc-500">
+                  {{ customDates.value.length }} date{{ customDates.value.length > 1 ? 's' : '' }} selected
+                </p>
+              </div>
+            </template>
           </div>
 
           <div class="rounded-2xl border border-zinc-800 bg-zinc-950 p-4 space-y-4">
