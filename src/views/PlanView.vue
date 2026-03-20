@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { getPlan, resetPlan, savePlan } from '../lib/db'
+import { triggerPlanCreatedMascot } from '../lib/budgetMascot'
 import { formatCurrency } from '../lib/utils'
 
 const userId = localStorage.getItem('userId')
@@ -238,6 +239,7 @@ async function handleGenerate() {
     }
 
     await loadPlan()
+    triggerPlanCreatedMascot()
   } catch (e) {
     console.error('Error generating budget plan:', e)
     alert(e.message || 'Failed to generate plan')

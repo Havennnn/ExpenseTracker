@@ -1,8 +1,10 @@
 <script setup>
 import { computed, defineAsyncComponent, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import BudgetMascotAlert from '../components/BudgetMascotAlert.vue'
 import BottomNav from '../components/BottomNav.vue'
 import HomeSkeleton from '../components/HomeSkeleton.vue'
+import { triggerWaveMascotOncePerDay } from '../lib/budgetMascot'
 import { getDashboard } from '../lib/db'
 import { formatCurrency } from '../lib/utils'
 
@@ -120,6 +122,7 @@ onMounted(() => {
     }
   }
 
+  triggerWaveMascotOncePerDay(userId)
   loadDashboard()
 })
 </script>
@@ -223,5 +226,6 @@ onMounted(() => {
     </KeepAlive>
 
     <BottomNav :active-tab="activeTab" @change="handleTabChange" />
+    <BudgetMascotAlert />
   </div>
 </template>

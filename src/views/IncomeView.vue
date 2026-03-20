@@ -6,6 +6,7 @@ import FilterBar from '../components/FilterBar.vue'
 import ListSkeleton from '../components/ListSkeleton.vue'
 import TransactionForm from '../components/TransactionForm.vue'
 import TransactionList from '../components/TransactionList.vue'
+import { triggerIncomeMascot } from '../lib/budgetMascot'
 import { addIncome, deleteIncome, getCategories, getIncomes } from '../lib/db'
 
 const props = defineProps({
@@ -165,6 +166,7 @@ async function saveIncome(formData) {
     }
 
     persistCache()
+    triggerIncomeMascot()
     emit('refresh')
   } catch (e) {
     console.error('Error:', e)

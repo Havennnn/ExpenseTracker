@@ -6,6 +6,7 @@ import FilterBar from '../components/FilterBar.vue'
 import ListSkeleton from '../components/ListSkeleton.vue'
 import TransactionForm from '../components/TransactionForm.vue'
 import TransactionList from '../components/TransactionList.vue'
+import { evaluateBudgetMascot } from '../lib/budgetMascot'
 import { addExpense, deleteExpense, getCategories, getExpenses } from '../lib/db'
 
 const props = defineProps({
@@ -173,6 +174,7 @@ async function saveExpense(formData) {
     })
     
     persistCache()
+    await evaluateBudgetMascot(userId, formData.date)
     emit('refresh')
   } catch (e) {
     console.error('Error:', e)
